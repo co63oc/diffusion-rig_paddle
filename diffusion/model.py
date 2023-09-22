@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import os
 import sys
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-import math
-from abc import abstractmethod
 
 import numpy as np
 import paddle
 
-import utils.paddle_add
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from abc import abstractmethod
+
+from utils import paddle_add
 
 from .nn import (avg_pool_nd, conv_nd, linear, normalization,
                  timestep_embedding, zero_module)
@@ -41,21 +41,14 @@ class AttentionPool2d(paddle.nn.Layer):
         output_dim: int = None,
     ):
         super().__init__()
-        out_4 = paddle.create_parameter(
-            shape=(
-                paddle.randn(shape=[embed_dim, spacial_dim**2 + 1]) / embed_dim**0.5
-            ).shape,
-            dtype=(
-                paddle.randn(shape=[embed_dim, spacial_dim**2 + 1]) / embed_dim**0.5
-            )
-            .numpy()
-            .dtype,
-            default_initializer=paddle.nn.initializer.Assign(
-                paddle.randn(shape=[embed_dim, spacial_dim**2 + 1]) / embed_dim**0.5
-            ),
+        param_data = (
+            paddle.randn(shape=[embed_dim, spacial_dim**2 + 1]) / embed_dim**0.5
         )
-        out_4.stop_gradient = not True
-        self.positional_embedding = out_4
+        self.positional_embedding = paddle.create_parameter(
+            shape=param_data.shape,
+            dtype=param_data.dtype,
+            default_initializer=paddle.nn.initializer.Assign(param_data),
+        )
         self.qkv_proj = conv_nd(1, embed_dim, 3 * embed_dim, 1)
         self.c_proj = conv_nd(1, embed_dim, output_dim or embed_dim, 1)
         self.num_heads = embed_dim // num_heads_channels
@@ -338,6 +331,9 @@ def count_flops_attn(model, _x, y):
         )
     """
     b, c, *spatial = y[0].shape
+    # We perform two matmuls with the same number of ops.
+    # The first computes the weight matrix, the second computes
+    # the combination of the value vectors.
     num_spatial = int(np.prod(spatial))
     matmul_ops = 2 * b * num_spatial**2 * c
     model.total_ops += paddle.to_tensor(data=[matmul_ops], dtype="float64")
@@ -366,11 +362,17 @@ class QKVAttentionLegacy(paddle.nn.Layer):
             qkv.reshape((bs * self.n_heads, ch * 3, length)), ch, dim=1
         )
         scale = 1 / math.sqrt(math.sqrt(ch))
-        weight = paddle.einsum("bct,bcs->bts", q * scale, k * scale)
+        weight = paddle.einsum(
+            "bct,bcs->bts",
+            q * scale.reshape([bs * self.n_heads, ch, length]),
+            k * scale.reshape([bs * self.n_heads, ch, length]),
+        )  # More stable with f16 than dividing afterwards
         weight = paddle.nn.functional.softmax(
             x=weight.astype(dtype="float32"), axis=-1
         ).astype(weight.dtype)
-        a = paddle.einsum("bts,bcs->bct", weight, v)
+        a = paddle.einsum(
+            "bts,bcs->bct", weight, v.reshape(bs * self.n_heads, ch, length)
+        )
         return a.reshape((bs, -1, length))
 
     @staticmethod

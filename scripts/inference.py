@@ -31,6 +31,7 @@ from utils.script_util import (add_dict_to_argparser, args_to_dict,
 
 
 def create_inter_data(dataset, modes, meanshape_path=""):
+    # Build DECA
     deca_cfg.model.use_tex = True
     deca_cfg.model.tex_path = "data/FLAME_texture.npz"
     deca_cfg.model.tex_type = "FLAME"
@@ -51,6 +52,8 @@ def create_inter_data(dataset, modes, meanshape_path=""):
         img1 = dataset[i]["image"].unsqueeze(axis=0).cuda()
         with paddle.no_grad():
             code1 = deca.encode(img1)
+
+        # To align the face when the pose is changing
         ffhq_center = None
         ffhq_center = deca.decode(code1, return_ffhq_center=True)
         tform = dataset[i]["tform"].unsqueeze(axis=0)
@@ -129,8 +132,6 @@ def main():
     )
     os.system("mkdir -p " + args.output_dir)
     noise = paddle.randn(shape=[1, 3, args.image_size, args.image_size]).to("cuda")
-    vis_dir = args.output_dir
-    idx = 0
     for batch in data:
         image = batch["image"]
         image2 = batch["image2"]
@@ -154,7 +155,7 @@ def main():
         sample = sample
         # paddle.vision.utils.save_image(sample, os.path.join(vis_dir, '{}_'.
         #     format(idx) + batch['mode']) + '.png')
-        idx += 1
+        # idx += 1
 
 
 def create_argparser():

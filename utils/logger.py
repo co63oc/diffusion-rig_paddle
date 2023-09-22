@@ -20,13 +20,14 @@ import datetime
 import json
 import os
 import os.path as osp
-import paddle
 import sys
 import tempfile
 import time
 import warnings
 from collections import defaultdict
 from contextlib import contextmanager
+
+import paddle
 
 DEBUG = 10
 INFO = 20
@@ -58,6 +59,7 @@ class HumanOutputFormat(KVWriter, SeqWriter):
             self.own_file = False
 
     def writekvs(self, kvs):
+        # Create strings for printing
         key2str = {}
         for key, val in sorted(kvs.items()):
             if hasattr(val, "__float__"):
@@ -65,12 +67,16 @@ class HumanOutputFormat(KVWriter, SeqWriter):
             else:
                 valstr = str(val)
             key2str[self._truncate(key)] = self._truncate(valstr)
+
+        # Find max widths
         if len(key2str) == 0:
             print("WARNING: tried to write empty key-value dict")
             return
         else:
             keywidth = max(map(len, key2str.keys()))
             valwidth = max(map(len, key2str.values()))
+
+        # Write out the data
         dashes = "-" * (keywidth + valwidth + 7)
         lines = [dashes]
         for key, val in sorted(key2str.items(), key=lambda kv: kv[0].lower()):
@@ -80,6 +86,8 @@ class HumanOutputFormat(KVWriter, SeqWriter):
             )
         lines.append(dashes)
         self.file.write("\n".join(lines) + "\n")
+
+        # Flush the output to the file
         self.file.flush()
 
     def _truncate(self, s):
@@ -90,7 +98,7 @@ class HumanOutputFormat(KVWriter, SeqWriter):
         seq = list(seq)
         for i, elem in enumerate(seq):
             self.file.write(elem)
-            if i < len(seq) - 1:
+            if i < len(seq) - 1:  # add space unless this is the last one
                 self.file.write(" ")
         self.file.write("\n")
         self.file.flush()
@@ -122,6 +130,7 @@ class CSVOutputFormat(KVWriter):
         self.sep = ","
 
     def writekvs(self, kvs):
+        # Add our current row to the history
         extra_keys = list(kvs.keys() - self.keys)
         paddle.sort(extra_keys)
         if extra_keys:
@@ -149,7 +158,6 @@ class CSVOutputFormat(KVWriter):
 
     def close(self):
         self.file.close()
-
 
 
 def make_output_format(format, ev_dir, log_suffix=""):
@@ -312,8 +320,8 @@ class Logger(object):
                 },
             )
             if self.comm.rank != 0:
-                d["dummy"] = 1
-        out = d.copy()
+                d["dummy"] = 1  # so we don't get a warning about empty dict
+        out = d.copy()  # Return the dict for unit testing purposes
         for fmt in self.output_formats:
             if isinstance(fmt, KVWriter):
                 fmt.writekvs(d)
@@ -345,6 +353,8 @@ class Logger(object):
 
 
 def get_rank_without_mpi_import():
+    # check environment variables here instead of importing mpi4py
+    # to avoid calling MPI_Init() when this module is imported
     for varname in ["PMI_RANK", "OMPI_COMM_WORLD_RANK"]:
         if varname in os.environ:
             return int(os.environ[varname])

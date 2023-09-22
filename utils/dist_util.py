@@ -23,6 +23,8 @@ import blobfile as bf
 import paddle
 from mpi4py import MPI
 
+# Change this to reflect your cluster layout.
+# The GPU for a given rank is (rank % GPUS_PER_NODE).
 GPUS_PER_NODE = 8
 SETUP_RETRY_COUNT = 3
 
@@ -34,7 +36,7 @@ def setup_dist():
     if paddle.distributed.is_initialized():
         return
     rank = MPI.COMM_WORLD.Get_rank() % GPUS_PER_NODE
-    paddle.device.set_device(device=rank)
+    paddle.device.set_device(device=f"gpu:{rank}")
     comm = MPI.COMM_WORLD
     backend = "gloo" if not paddle.device.cuda.device_count() >= 1 else "nccl"
     if backend == "gloo":
@@ -54,15 +56,15 @@ def dev():
     Get the device to use for torch.distributed.
     """
     if paddle.device.cuda.device_count() >= 1:
-        return str(f"cuda").replace("cuda", "gpu")
-    return str("cpu").replace("cuda", "gpu")
+        return "cuda"
+    return "cpu"
 
 
 def load_state_dict(path, **kwargs):
     """
     Load a PyTorch file without redundant fetches across MPI ranks.
     """
-    chunk_size = 2**30
+    chunk_size = 2**30  # MPI has a relatively small size limit
     if MPI.COMM_WORLD.Get_rank() == 0:
         with bf.BlobFile(path, "rb") as f:
             data = f.read()

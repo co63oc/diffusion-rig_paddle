@@ -156,10 +156,16 @@ class CheckpointFunction(paddle.autograd.PyLayer):
 
     @staticmethod
     def backward(ctx, *output_grads):
-        out_5 = x.detach()
-        out_5.stop_gradient = not True
-        ctx.input_tensors = [out_5 for x in ctx.input_tensors]
+        list1 = []
+        for x in ctx.input_tensors:
+            x = x.detach()
+            x.stop_gradient = False
+            list1.append(x)
+        ctx.input_tensors = list1
         with paddle.enable_grad():
+            # Fixes a bug where the first op in run_function modifies the
+            # Tensor storage in place, which is not allowed for detach()'d
+            # Tensors.
             shallow_copies = [x.reshape(x.shape) for x in ctx.input_tensors]
             output_tensors = ctx.run_function(*shallow_copies)
         input_grads = paddle.grad(

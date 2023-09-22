@@ -33,10 +33,14 @@ from utils.script_util import add_dict_to_argparser
 
 def main():
     args = create_argparser().parse_args()
+
+    # Build DECA
     deca_cfg.model.use_tex = True
     deca_cfg.model.tex_path = "data/FLAME_texture.npz"
     deca_cfg.model.tex_type = "FLAME"
     deca = DECA(config=deca_cfg, device=paddle.CUDAPlace(0))
+
+    # Create Dataset
     dataset_root = args.data_dir
     testdata = datasets.TestData(
         dataset_root, iscrop=True, size=args.image_size, sort=True

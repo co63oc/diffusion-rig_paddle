@@ -12,13 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import enum
+import math
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import numpy as np
 import paddle
 
-import utils.paddle_add
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from utils import paddle_add
 
 """
 This code started out as a PyTorch port of Ho et al's diffusion models:
@@ -26,10 +30,6 @@ https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0
 
 Docstrings have been added, as well as DDIM sampling and a new collection of beta schedules.
 """
-import enum
-import math
-
-import numpy as np
 
 from .losses import discretized_gaussian_log_likelihood, normal_kl
 from .nn import mean_flat
@@ -45,6 +45,8 @@ def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
     they are committed to maintain backwards compatibility.
     """
     if schedule_name == "linear":
+        # Linear schedule from Ho et al, extended to work for any number of
+        # diffusion steps.
         scale = 1000 / num_diffusion_timesteps
         beta_start = scale * 0.0001
         beta_end = scale * 0.02
@@ -85,9 +87,9 @@ class ModelMeanType(enum.Enum):
     Which type of output the model predicts.
     """
 
-    PREVIOUS_X = enum.auto()
-    START_X = enum.auto()
-    EPSILON = enum.auto()
+    PREVIOUS_X = enum.auto()  # the model predicts x_{t-1}
+    START_X = enum.auto()  # the model predicts x_0
+    EPSILON = enum.auto()  # the model predicts epsilon
 
 
 class ModelVarType(enum.Enum):
@@ -105,10 +107,12 @@ class ModelVarType(enum.Enum):
 
 
 class LossType(enum.Enum):
-    MSE = enum.auto()
-    RESCALED_MSE = enum.auto()
-    KL = enum.auto()
-    RESCALED_KL = enum.auto()
+    MSE = enum.auto()  # use raw MSE loss (and KL when learning variances)
+    RESCALED_MSE = (
+        enum.auto()
+    )  # use raw MSE loss (with RESCALED_KL when learning variances)
+    KL = enum.auto()  # use the variational lower-bound
+    RESCALED_KL = enum.auto()  # like KL, but rescale to estimate the full VLB
 
     def is_vb(self):
         return self == LossType.KL or self == LossType.RESCALED_KL
@@ -118,18 +122,19 @@ class GaussianDiffusion:
     """
     Utilities for training and sampling diffusion models.
 
-    Ported directly from here, and then adapted over time to further experimentation.
+    Ported directly from here, and then adapted over time
+    to further experimentation.
     https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0706c543/diffusion_tf/diffusion_utils_2.py#L42
 
     :param betas: a 1-D numpy array of betas for each diffusion timestep,
                   starting at T and going to 1.
-    :param model_mean_type: a ModelMeanType determining what the model outputs.
-    :param model_var_type: a ModelVarType determining how variance is output.
+    :param model_mean_type: ModelMeanType determining what the model outputs.
+    :param model_var_type: ModelVarType determining how variance is output.
     :param loss_type: a LossType determining the loss function to use.
     :param rescale_timesteps: if True, pass floating point timesteps into the
                               model so that they are always scaled like in the
                               original paper (0 to 1000).
-    :param p2_weight: if Ture, use p2 weight loss
+    :param p2_weight: if True, use p2 weight loss
     :param p2_gamma: gamma parameter used in p2 weight loss
     :param p2_k: k parameter used in p2 weight loss
     """
@@ -150,6 +155,8 @@ class GaussianDiffusion:
         self.model_var_type = model_var_type
         self.loss_type = loss_type
         self.rescale_timesteps = rescale_timesteps
+
+        # Use float64 for accuracy.
         betas = np.array(betas, dtype=np.float64)
         self.betas = betas
         assert len(betas.shape) == 1, "betas must be 1-D"
@@ -160,17 +167,24 @@ class GaussianDiffusion:
         self.alphas_cumprod_prev = np.append(1.0, self.alphas_cumprod[:-1])
         self.alphas_cumprod_next = np.append(self.alphas_cumprod[1:], 0.0)
         assert self.alphas_cumprod_prev.shape == (self.num_timesteps,)
+
+        # calculations for diffusion q(x_t | x_{t-1}) and others
         self.sqrt_alphas_cumprod = np.sqrt(self.alphas_cumprod)
         self.sqrt_one_minus_alphas_cumprod = np.sqrt(1.0 - self.alphas_cumprod)
         self.log_one_minus_alphas_cumprod = np.log(1.0 - self.alphas_cumprod)
         self.sqrt_recip_alphas_cumprod = np.sqrt(1.0 / self.alphas_cumprod)
         self.sqrt_recipm1_alphas_cumprod = np.sqrt(1.0 / self.alphas_cumprod - 1)
+
+        # calculations for posterior q(x_{t-1} | x_t, x_0)
         self.posterior_variance = (
             betas * (1.0 - self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
         )
+        # log calculation clipped because the posterior variance is 0 at the
+        # beginning of the diffusion chain.
         self.posterior_log_variance_clipped = np.log(
             np.append(self.posterior_variance[1], self.posterior_variance[1:])
         )
+
         self.posterior_mean_coef1 = (
             betas * np.sqrt(self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
         )
@@ -286,11 +300,14 @@ class GaussianDiffusion:
                     self.posterior_log_variance_clipped, t, x.shape
                 )
                 max_log = _extract_into_tensor(np.log(self.betas), t, x.shape)
+                # The model_var_values is [-1, 1] for [min_var, max_var].
                 frac = (model_var_values + 1) / 2
                 model_log_variance = frac * max_log + (1 - frac) * min_log
-                model_variance = paddle.exp(x=model_log_variance)
+                model_variance = paddle.exp(model_log_variance)
         else:
             model_variance, model_log_variance = {
+                # for fixedlarge, we set the initial (log-)variance like so
+                # to get a better decoder log likelihood.
                 ModelVarType.FIXED_LARGE: (
                     np.append(self.posterior_variance[1], self.betas[1:]),
                     np.log(np.append(self.posterior_variance[1], self.betas[1:])),
@@ -446,7 +463,7 @@ class GaussianDiffusion:
         noise = paddle.randn(shape=x.shape, dtype=x.dtype)
         nonzero_mask = (
             (t != 0).astype(dtype="float32").reshape([-1, *([1] * (len(x.shape) - 1))])
-        )
+        )  # no noise when t == 0
         if cond_fn is not None:
             out["mean"] = self.condition_mean(
                 cond_fn, out, x, t, model_kwargs=model_kwargs
@@ -531,6 +548,7 @@ class GaussianDiffusion:
             img = paddle.randn(shape=shape)
         indices = list(range(self.num_timesteps))[::-1]
         if progress:
+            # Lazy import so that we don't depend on tqdm.
             from tqdm.auto import tqdm
 
             indices = tqdm(indices)
@@ -575,7 +593,11 @@ class GaussianDiffusion:
         )
         if cond_fn is not None:
             out = self.condition_score(cond_fn, out, x, t, model_kwargs=model_kwargs)
+
+        # Usually our model outputs epsilon, but we re-derive it
+        # in case we used x_start or x_prev prediction.
         eps = self._predict_eps_from_xstart(x, t, out["pred_xstart"])
+
         alpha_bar = _extract_into_tensor(self.alphas_cumprod, t, x.shape)
         alpha_bar_prev = _extract_into_tensor(self.alphas_cumprod_prev, t, x.shape)
         sigma = (
@@ -583,6 +605,7 @@ class GaussianDiffusion:
             * paddle.sqrt(x=(1 - alpha_bar_prev) / (1 - alpha_bar))
             * paddle.sqrt(x=1 - alpha_bar / alpha_bar_prev)
         )
+        # Equation 12.
         noise = paddle.randn(shape=x.shape, dtype=x.dtype)
         mean_pred = (
             out["pred_xstart"] * paddle.sqrt(x=alpha_bar_prev)
@@ -590,7 +613,7 @@ class GaussianDiffusion:
         )
         nonzero_mask = (
             (t != 0).astype(dtype="float32").reshape([-1, *([1] * (len(x.shape) - 1))])
-        )
+        )  # no noise when t == 0
         sample = mean_pred + nonzero_mask * sigma * noise
         return {"sample": sample, "pred_xstart": out["pred_xstart"]}
 
@@ -624,10 +647,22 @@ class GaussianDiffusion:
                     eta=eta,
                 )
                 sample = out["sample"]
+                # [1, ..., T]
                 sample_t.append(sample)
+                # [0, ...., T-1]
                 xstart_t.append(out["pred_xstart"])
+                # [0, ..., T-1] ready to use
                 T.append(t)
-        return {"sample": sample, "sample_t": sample_t, "xstart_t": xstart_t, "T": T}
+        return {
+            #  xT "
+            "sample": sample,
+            # (1, ..., T)
+            "sample_t": sample_t,
+            # xstart here is a bit different from sampling from T = T-1 to T = 0
+            # may not be exact
+            "xstart_t": xstart_t,
+            "T": T,
+        }
 
     def ddim_reverse_sample(
         self,
@@ -651,11 +686,15 @@ class GaussianDiffusion:
             denoised_fn=denoised_fn,
             model_kwargs=model_kwargs,
         )
+        # Usually our model outputs epsilon, but we re-derive it
+        # in case we used x_start or x_prev prediction.
         eps = (
             _extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x.shape) * x
             - out["pred_xstart"]
         ) / _extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x.shape)
         alpha_bar_next = _extract_into_tensor(self.alphas_cumprod_next, t, x.shape)
+
+        # Equation 12. reversed
         mean_pred = (
             out["pred_xstart"] * paddle.sqrt(x=alpha_bar_next)
             + paddle.sqrt(x=1 - alpha_bar_next) * eps
@@ -724,6 +763,7 @@ class GaussianDiffusion:
             img = paddle.randn(shape=shape)
         indices = list(range(self.num_timesteps))[::-1]
         if progress:
+            # Lazy import so that we don't depend on tqdm.
             from tqdm.auto import tqdm
 
             indices = tqdm(indices)
@@ -771,6 +811,9 @@ class GaussianDiffusion:
         )
         assert decoder_nll.shape == x_start.shape
         decoder_nll = mean_flat(decoder_nll) / np.log(2.0)
+
+        # At the first timestep return the decoder NLL,
+        # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
         output = paddle.where(condition=t == 0, x=decoder_nll, y=kl)
         return {"output": output, "pred_xstart": out["pred_xstart"]}
 
@@ -859,6 +902,7 @@ class GaussianDiffusion:
             t_batch = paddle.to_tensor(data=[t] * batch_size, place=device)
             noise = paddle.randn(shape=x_start.shape, dtype=x_start.dtype)
             x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
+            # Calculate VLB term at the current timestep
             with paddle.no_grad():
                 out = self._vb_terms_bpd(
                     model,
