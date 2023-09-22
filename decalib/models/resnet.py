@@ -1,4 +1,25 @@
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import paddle
+
+import utils.paddle_add
+
 """
 Author: Soubhik Sanyal
 Copyright (c) 2019, Soubhik Sanyal
@@ -11,17 +32,23 @@ Loads different resnet models
     author: zhangxiong(1025679612@qq.com)
     mark:   copied from pytorch source code
 """
-import numpy as np
 import math
+
+import numpy as np
 
 
 class ResNet(paddle.nn.Layer):
-
     def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self.conv1 = paddle.nn.Conv2D(in_channels=3, out_channels=64,
-            kernel_size=7, stride=2, padding=3, bias_attr=False)
+        self.conv1 = paddle.nn.Conv2D(
+            in_channels=3,
+            out_channels=64,
+            kernel_size=7,
+            stride=2,
+            padding=3,
+            bias_attr=False,
+        )
         self.bn1 = paddle.nn.BatchNorm2D(num_features=64)
         self.relu = paddle.nn.ReLU()
         self.maxpool = paddle.nn.MaxPool2D(kernel_size=3, stride=2, padding=1)
@@ -29,23 +56,33 @@ class ResNet(paddle.nn.Layer):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.avgpool = paddle.nn.AvgPool2D(kernel_size=7, stride=1,
-            exclusive=False)
+        self.avgpool = paddle.nn.AvgPool2D(kernel_size=7, stride=1, exclusive=False)
+
         for m in self.sublayers():
             if isinstance(m, paddle.nn.Conv2D):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+                n = m._kernel_size[0] * m._kernel_size[1] * m._out_channels
+                std = math.sqrt(2.0 / n)
+                init_normal = paddle.nn.initializer.Normal(mean=0, std=std)
+                init_normal(m.weight)
             elif isinstance(m, paddle.nn.BatchNorm2D):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+                init_1 = paddle.nn.initializer.Constant(value=1.0)
+                init_0 = paddle.nn.initializer.Constant(value=0.0)
+                init_1(m.weight)
+                init_0(m.bias)
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = paddle.nn.Sequential(paddle.nn.Conv2D(in_channels=
-                self.inplanes, out_channels=planes * block.expansion,
-                kernel_size=1, stride=stride, bias_attr=False), paddle.nn.
-                BatchNorm2D(num_features=planes * block.expansion))
+            downsample = paddle.nn.Sequential(
+                paddle.nn.Conv2D(
+                    in_channels=self.inplanes,
+                    out_channels=planes * block.expansion,
+                    kernel_size=1,
+                    stride=stride,
+                    bias_attr=False,
+                ),
+                paddle.nn.BatchNorm2D(num_features=planes * block.expansion),
+            )
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
@@ -72,14 +109,22 @@ class Bottleneck(paddle.nn.Layer):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        self.conv1 = paddle.nn.Conv2D(in_channels=inplanes, out_channels=
-            planes, kernel_size=1, bias_attr=False)
+        self.conv1 = paddle.nn.Conv2D(
+            in_channels=inplanes, out_channels=planes, kernel_size=1, bias_attr=False
+        )
         self.bn1 = paddle.nn.BatchNorm2D(num_features=planes)
-        self.conv2 = paddle.nn.Conv2D(in_channels=planes, out_channels=
-            planes, kernel_size=3, stride=stride, padding=1, bias_attr=False)
+        self.conv2 = paddle.nn.Conv2D(
+            in_channels=planes,
+            out_channels=planes,
+            kernel_size=3,
+            stride=stride,
+            padding=1,
+            bias_attr=False,
+        )
         self.bn2 = paddle.nn.BatchNorm2D(num_features=planes)
-        self.conv3 = paddle.nn.Conv2D(in_channels=planes, out_channels=
-            planes * 4, kernel_size=1, bias_attr=False)
+        self.conv3 = paddle.nn.Conv2D(
+            in_channels=planes, out_channels=planes * 4, kernel_size=1, bias_attr=False
+        )
         self.bn3 = paddle.nn.BatchNorm2D(num_features=planes * 4)
         self.relu = paddle.nn.ReLU()
         self.downsample = downsample
@@ -104,8 +149,14 @@ class Bottleneck(paddle.nn.Layer):
 
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
-    return paddle.nn.Conv2D(in_channels=in_planes, out_channels=out_planes,
-        kernel_size=3, stride=stride, padding=1, bias_attr=False)
+    return paddle.nn.Conv2D(
+        in_channels=in_planes,
+        out_channels=out_planes,
+        kernel_size=3,
+        stride=stride,
+        padding=1,
+        bias_attr=False,
+    )
 
 
 class BasicBlock(paddle.nn.Layer):
@@ -141,31 +192,35 @@ def copy_parameter_from_resnet(model, resnet_dict):
         if name not in cur_state_dict:
             continue
         if isinstance(param, paddle.fluid.framework.Parameter):
-            param = param.data
+            param = param.clone().detach()
         try:
             paddle.assign(param, output=cur_state_dict[name])
         except:
+            print(name, " is inconsistent!")
             continue
 
 
 def load_ResNet50Model():
     model = ResNet(Bottleneck, [3, 4, 6, 3])
-    copy_parameter_from_resnet(model, torchvision.models.resnet50(
-        pretrained=False).state_dict())
+    copy_parameter_from_resnet(
+        model, paddle.vision.models.resnet50(pretrained=False).state_dict()
+    )
     return model
 
 
 def load_ResNet101Model():
     model = ResNet(Bottleneck, [3, 4, 23, 3])
-    copy_parameter_from_resnet(model, torchvision.models.resnet101(
-        pretrained=True).state_dict())
+    copy_parameter_from_resnet(
+        model, paddle.vision.models.resnet101(pretrained=True).state_dict()
+    )
     return model
 
 
 def load_ResNet152Model():
     model = ResNet(Bottleneck, [3, 8, 36, 3])
-    copy_parameter_from_resnet(model, torchvision.models.resnet152(
-        pretrained=True).state_dict())
+    copy_parameter_from_resnet(
+        model, paddle.vision.models.resnet152(pretrained=True).state_dict()
+    )
     return model
 
 
@@ -174,12 +229,24 @@ class DoubleConv(paddle.nn.Layer):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.double_conv = paddle.nn.Sequential(paddle.nn.Conv2D(
-            in_channels=in_channels, out_channels=out_channels, kernel_size
-            =3, padding=1), paddle.nn.BatchNorm2D(num_features=out_channels
-            ), paddle.nn.ReLU(), paddle.nn.Conv2D(in_channels=out_channels,
-            out_channels=out_channels, kernel_size=3, padding=1), paddle.nn
-            .BatchNorm2D(num_features=out_channels), paddle.nn.ReLU())
+        self.double_conv = paddle.nn.Sequential(
+            paddle.nn.Conv2D(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=3,
+                padding=1,
+            ),
+            paddle.nn.BatchNorm2D(num_features=out_channels),
+            paddle.nn.ReLU(),
+            paddle.nn.Conv2D(
+                in_channels=out_channels,
+                out_channels=out_channels,
+                kernel_size=3,
+                padding=1,
+            ),
+            paddle.nn.BatchNorm2D(num_features=out_channels),
+            paddle.nn.ReLU(),
+        )
 
     def forward(self, x):
         return self.double_conv(x)
@@ -190,8 +257,9 @@ class Down(paddle.nn.Layer):
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.maxpool_conv = paddle.nn.Sequential(paddle.nn.MaxPool2D(
-            kernel_size=2), DoubleConv(in_channels, out_channels))
+        self.maxpool_conv = paddle.nn.Sequential(
+            paddle.nn.MaxPool2D(kernel_size=2), DoubleConv(in_channels, out_channels)
+        )
 
     def forward(self, x):
         return self.maxpool_conv(x)
@@ -203,29 +271,35 @@ class Up(paddle.nn.Layer):
     def __init__(self, in_channels, out_channels, bilinear=True):
         super().__init__()
         if bilinear:
-            self.up = paddle.nn.Upsample(scale_factor=2, mode='bilinear',
-                align_corners=True)
+            self.up = paddle.nn.Upsample(
+                scale_factor=2, mode="bilinear", align_corners=True
+            )
         else:
-            self.up = paddle.nn.Conv2DTranspose(in_channels=in_channels // 
-                2, out_channels=in_channels // 2, kernel_size=2, stride=2)
+            self.up = paddle.nn.Conv2DTranspose(
+                in_channels=in_channels // 2,
+                out_channels=in_channels // 2,
+                kernel_size=2,
+                stride=2,
+            )
         self.conv = DoubleConv(in_channels, out_channels)
 
     def forward(self, x1, x2):
         x1 = self.up(x1)
         diffY = x2.shape[2] - x1.shape[2]
         diffX = x2.shape[3] - x1.shape[3]
->>>        x1 = torch.nn.functional.pad(x1, [diffX // 2, diffX - diffX // 2, 
-            diffY // 2, diffY - diffY // 2])
+        x1 = paddle_add.pad(
+            x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2]
+        )
         x = paddle.concat(x=[x2, x1], axis=1)
         return self.conv(x)
 
 
 class OutConv(paddle.nn.Layer):
-
     def __init__(self, in_channels, out_channels):
         super(OutConv, self).__init__()
-        self.conv = paddle.nn.Conv2D(in_channels=in_channels, out_channels=
-            out_channels, kernel_size=1)
+        self.conv = paddle.nn.Conv2D(
+            in_channels=in_channels, out_channels=out_channels, kernel_size=1
+        )
 
     def forward(self, x):
         return self.conv(x)

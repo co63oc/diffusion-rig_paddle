@@ -1,11 +1,31 @@
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
 import sys
-sys.path.append('/nfs/github/recurrent/out/utils')
-import paddle_aux
-import paddle
-from abc import abstractmethod
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import math
+from abc import abstractmethod
+
 import numpy as np
-from .nn import conv_nd, linear, avg_pool_nd, zero_module, normalization, timestep_embedding
+import paddle
+
+import utils.paddle_add
+
+from .nn import (avg_pool_nd, conv_nd, linear, normalization,
+                 timestep_embedding, zero_module)
 
 
 class AttentionPool2d(paddle.nn.Layer):
@@ -13,15 +33,27 @@ class AttentionPool2d(paddle.nn.Layer):
     Adapted from CLIP: https://github.com/openai/CLIP/blob/main/clip/model.py
     """
 
-    def __init__(self, spacial_dim: int, embed_dim: int, num_heads_channels:
-        int, output_dim: int=None):
+    def __init__(
+        self,
+        spacial_dim: int,
+        embed_dim: int,
+        num_heads_channels: int,
+        output_dim: int = None,
+    ):
         super().__init__()
-        out_4 = paddle.create_parameter(shape=(paddle.randn(shape=[
-            embed_dim, spacial_dim ** 2 + 1]) / embed_dim ** 0.5).shape,
-            dtype=(paddle.randn(shape=[embed_dim, spacial_dim ** 2 + 1]) / 
-            embed_dim ** 0.5).numpy().dtype, default_initializer=paddle.nn.
-            initializer.Assign(paddle.randn(shape=[embed_dim, spacial_dim **
-            2 + 1]) / embed_dim ** 0.5))
+        out_4 = paddle.create_parameter(
+            shape=(
+                paddle.randn(shape=[embed_dim, spacial_dim**2 + 1]) / embed_dim**0.5
+            ).shape,
+            dtype=(
+                paddle.randn(shape=[embed_dim, spacial_dim**2 + 1]) / embed_dim**0.5
+            )
+            .numpy()
+            .dtype,
+            default_initializer=paddle.nn.initializer.Assign(
+                paddle.randn(shape=[embed_dim, spacial_dim**2 + 1]) / embed_dim**0.5
+            ),
+        )
         out_4.stop_gradient = not True
         self.positional_embedding = out_4
         self.qkv_proj = conv_nd(1, embed_dim, 3 * embed_dim, 1)
@@ -33,7 +65,7 @@ class AttentionPool2d(paddle.nn.Layer):
         b, c, *_spatial = x.shape
         x = x.reshape((b, c, -1))
         x = paddle.concat(x=[x.mean(axis=-1, keepdim=True), x], axis=-1)
-        x = x + self.positional_embedding[(None), :, :].to(x.dtype)
+        x = x + self.positional_embedding[(None), :, :].astype(x.dtype)
         x = self.qkv_proj(x)
         x = self.attention(x)
         x = self.c_proj(x)
@@ -84,17 +116,16 @@ class Upsample(paddle.nn.Layer):
         self.use_conv = use_conv
         self.dims = dims
         if use_conv:
-            self.conv = conv_nd(dims, self.channels, self.out_channels, 3,
-                padding=1)
+            self.conv = conv_nd(dims, self.channels, self.out_channels, 3, padding=1)
 
     def forward(self, x):
         assert x.shape[1] == self.channels
         if self.dims == 3:
-            x = paddle.nn.functional.interpolate(x=x, size=(x.shape[2], x.
-                shape[3] * 2, x.shape[4] * 2), mode='nearest')
+            x = paddle.nn.functional.interpolate(
+                x=x, size=(x.shape[2], x.shape[3] * 2, x.shape[4] * 2), mode="nearest"
+            )
         else:
-            x = paddle.nn.functional.interpolate(x=x, scale_factor=2, mode=
-                'nearest')
+            x = paddle.nn.functional.interpolate(x=x, scale_factor=2, mode="nearest")
         if self.use_conv:
             x = self.conv(x)
         return x
@@ -118,8 +149,9 @@ class Downsample(paddle.nn.Layer):
         self.dims = dims
         stride = 2 if dims != 3 else (1, 2, 2)
         if use_conv:
-            self.op = conv_nd(dims, self.channels, self.out_channels, 3,
-                stride=stride, padding=1)
+            self.op = conv_nd(
+                dims, self.channels, self.out_channels, 3, stride=stride, padding=1
+            )
         else:
             assert self.channels == self.out_channels
             self.op = avg_pool_nd(dims, kernel_size=stride, stride=stride)
@@ -147,9 +179,20 @@ class ResBlock(TimestepBlock):
     :param global_latent: the dimension of global latent code
     """
 
-    def __init__(self, channels, emb_channels, dropout, out_channels=None,
-        use_conv=False, use_scale_shift_norm=False, dims=2, use_checkpoint=
-        False, up=False, down=False, global_latent=64):
+    def __init__(
+        self,
+        channels,
+        emb_channels,
+        dropout,
+        out_channels=None,
+        use_conv=False,
+        use_scale_shift_norm=False,
+        dims=2,
+        use_checkpoint=False,
+        up=False,
+        down=False,
+        global_latent=64,
+    ):
         super().__init__()
         self.channels = channels
         self.emb_channels = emb_channels
@@ -158,9 +201,11 @@ class ResBlock(TimestepBlock):
         self.use_conv = use_conv
         self.use_checkpoint = use_checkpoint
         self.use_scale_shift_norm = use_scale_shift_norm
-        self.in_layers = paddle.nn.Sequential(normalization(channels),
-            paddle.nn.Silu(), conv_nd(dims, channels, self.out_channels, 3,
-            padding=1))
+        self.in_layers = paddle.nn.Sequential(
+            normalization(channels),
+            paddle.nn.Silu(),
+            conv_nd(dims, channels, self.out_channels, 3, padding=1),
+        )
         self.updown = up or down
         if up:
             self.h_upd = Upsample(channels, False, dims)
@@ -171,23 +216,34 @@ class ResBlock(TimestepBlock):
         else:
             self.h_upd = self.x_upd = paddle.nn.Identity()
         if emb_channels > 0:
-            self.emb_layers = paddle.nn.Sequential(paddle.nn.Silu(), linear
-                (emb_channels, 2 * self.out_channels if
-                use_scale_shift_norm else self.out_channels))
-            self.cond_emb_layers = paddle.nn.Sequential(paddle.nn.Silu(),
-                linear(global_latent, 2 * self.out_channels))
-            self.out_layers = paddle.nn.Sequential(normalization(self.
-                out_channels), paddle.nn.Silu(), paddle.nn.Dropout(p=
-                dropout), zero_module(conv_nd(dims, self.out_channels, self
-                .out_channels, 3, padding=1)))
+            self.emb_layers = paddle.nn.Sequential(
+                paddle.nn.Silu(),
+                linear(
+                    emb_channels,
+                    2 * self.out_channels
+                    if use_scale_shift_norm
+                    else self.out_channels,
+                ),
+            )
+            self.cond_emb_layers = paddle.nn.Sequential(
+                paddle.nn.Silu(), linear(global_latent, 2 * self.out_channels)
+            )
+            self.out_layers = paddle.nn.Sequential(
+                normalization(self.out_channels),
+                paddle.nn.Silu(),
+                paddle.nn.Dropout(p=dropout),
+                zero_module(
+                    conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1)
+                ),
+            )
         if self.out_channels == channels:
             self.skip_connection = paddle.nn.Identity()
         elif use_conv:
-            self.skip_connection = conv_nd(dims, channels, self.
-                out_channels, 3, padding=1)
+            self.skip_connection = conv_nd(
+                dims, channels, self.out_channels, 3, padding=1
+            )
         else:
-            self.skip_connection = conv_nd(dims, channels, self.out_channels, 1
-                )
+            self.skip_connection = conv_nd(dims, channels, self.out_channels, 1)
 
     def forward(self, x, emb=None, detail_cond=None):
         if self.updown:
@@ -215,8 +271,7 @@ class ResBlock(TimestepBlock):
                 scale, shift = paddle.chunk(x=emb_out, chunks=2, axis=1)
                 h = h * (1 + scale) + shift
             if detail_cond is not None:
-                scale, shift = paddle.chunk(x=detail_cond_out, chunks=2, axis=1
-                    )
+                scale, shift = paddle.chunk(x=detail_cond_out, chunks=2, axis=1)
                 h = h * (1 + scale) + shift
             h = out_rest(h)
         else:
@@ -236,14 +291,22 @@ class AttentionBlock(paddle.nn.Layer):
     https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0706c543/diffusion_tf/models/unet.py#L66.
     """
 
-    def __init__(self, channels, num_heads=1, num_head_channels=-1,
-        use_checkpoint=False, use_new_attention_order=False):
+    def __init__(
+        self,
+        channels,
+        num_heads=1,
+        num_head_channels=-1,
+        use_checkpoint=False,
+        use_new_attention_order=False,
+    ):
         super().__init__()
         self.channels = channels
         if num_head_channels == -1:
             self.num_heads = num_heads
         else:
-            assert channels % num_head_channels == 0, f'q,k,v channels {channels} is not divisible by num_head_channels {num_head_channels}'
+            assert (
+                channels % num_head_channels == 0
+            ), f"q,k,v channels {channels} is not divisible by num_head_channels {num_head_channels}"
             self.num_heads = channels // num_head_channels
         self.use_checkpoint = use_checkpoint
         self.norm = normalization(channels)
@@ -276,8 +339,8 @@ def count_flops_attn(model, _x, y):
     """
     b, c, *spatial = y[0].shape
     num_spatial = int(np.prod(spatial))
-    matmul_ops = 2 * b * num_spatial ** 2 * c
-    model.total_ops += paddle.to_tensor(data=[matmul_ops], dtype='float64')
+    matmul_ops = 2 * b * num_spatial**2 * c
+    model.total_ops += paddle.to_tensor(data=[matmul_ops], dtype="float64")
 
 
 class QKVAttentionLegacy(paddle.nn.Layer):
@@ -299,13 +362,15 @@ class QKVAttentionLegacy(paddle.nn.Layer):
         bs, width, length = qkv.shape
         assert width % (3 * self.n_heads) == 0
         ch = width // (3 * self.n_heads)
-        q, k, v = qkv.reshape((bs * self.n_heads, ch * 3, length)).split(ch,
-            dim=1)
+        q, k, v = paddle_add.split(
+            qkv.reshape((bs * self.n_heads, ch * 3, length)), ch, dim=1
+        )
         scale = 1 / math.sqrt(math.sqrt(ch))
-        weight = paddle.einsum('bct,bcs->bts', q * scale, k * scale)
-        weight = paddle.nn.functional.softmax(x=weight.astype(dtype=
-            'float32'), axis=-1).astype(weight.dtype)
-        a = paddle.einsum('bts,bcs->bct', weight, v)
+        weight = paddle.einsum("bct,bcs->bts", q * scale, k * scale)
+        weight = paddle.nn.functional.softmax(
+            x=weight.astype(dtype="float32"), axis=-1
+        ).astype(weight.dtype)
+        a = paddle.einsum("bts,bcs->bct", weight, v)
         return a.reshape((bs, -1, length))
 
     @staticmethod
@@ -334,13 +399,17 @@ class QKVAttention(paddle.nn.Layer):
         ch = width // (3 * self.n_heads)
         q, k, v = qkv.chunk(chunks=3, axis=1)
         scale = 1 / math.sqrt(math.sqrt(ch))
-        weight = paddle.einsum('bct,bcs->bts', (q * scale).reshape([bs * self.
-            n_heads, ch, length]), (k * scale).reshape([bs * self.n_heads, ch,
-            length]))
-        weight = paddle.nn.functional.softmax(x=weight.astype(dtype=
-            'float32'), axis=-1).astype(weight.dtype)
-        a = paddle.einsum('bts,bcs->bct', weight, v.reshape((bs * self.
-            n_heads, ch, length)))
+        weight = paddle.einsum(
+            "bct,bcs->bts",
+            (q * scale).reshape([bs * self.n_heads, ch, length]),
+            (k * scale).reshape([bs * self.n_heads, ch, length]),
+        )
+        weight = paddle.nn.functional.softmax(
+            x=weight.astype(dtype="float32"), axis=-1
+        ).astype(weight.dtype)
+        a = paddle.einsum(
+            "bts,bcs->bct", weight, v.reshape((bs * self.n_heads, ch, length))
+        )
         return a.reshape((bs, -1, length))
 
     @staticmethod
@@ -378,12 +447,27 @@ class UNetModel(paddle.nn.Layer):
     :param global_latent: the dimension of global latent code
     """
 
-    def __init__(self, image_size, in_channels, model_channels,
-        out_channels, num_res_blocks, attention_resolutions, dropout=0,
-        channel_mult=(1, 2, 4, 8), conv_resample=True, dims=2,
-        use_checkpoint=False, num_heads=1, num_head_channels=-1,
-        num_heads_upsample=-1, use_scale_shift_norm=False, resblock_updown=
-        False, use_new_attention_order=False, global_latent=64):
+    def __init__(
+        self,
+        image_size,
+        in_channels,
+        model_channels,
+        out_channels,
+        num_res_blocks,
+        attention_resolutions,
+        dropout=0,
+        channel_mult=(1, 2, 4, 8),
+        conv_resample=True,
+        dims=2,
+        use_checkpoint=False,
+        num_heads=1,
+        num_head_channels=-1,
+        num_heads_upsample=-1,
+        use_scale_shift_norm=False,
+        resblock_updown=False,
+        use_new_attention_order=False,
+        global_latent=64,
+    ):
         super().__init__()
         if num_heads_upsample == -1:
             num_heads_upsample = num_heads
@@ -401,81 +485,153 @@ class UNetModel(paddle.nn.Layer):
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
         time_embed_dim = model_channels * 4
-        self.time_embed = paddle.nn.Sequential(linear(model_channels,
-            time_embed_dim), paddle.nn.Silu(), linear(time_embed_dim,
-            time_embed_dim))
+        self.time_embed = paddle.nn.Sequential(
+            linear(model_channels, time_embed_dim),
+            paddle.nn.Silu(),
+            linear(time_embed_dim, time_embed_dim),
+        )
         ch = input_ch = int(channel_mult[0] * model_channels)
-        self.input_blocks = paddle.nn.LayerList(sublayers=[
-            TimestepEmbedSequential(conv_nd(dims, in_channels, ch, 3,
-            padding=1))])
+        self.input_blocks = paddle.nn.LayerList(
+            sublayers=[
+                TimestepEmbedSequential(conv_nd(dims, in_channels, ch, 3, padding=1))
+            ]
+        )
         self._feature_size = ch
         input_block_chans = [ch]
         ds = 1
         for level, mult in enumerate(channel_mult):
             for _ in range(num_res_blocks):
-                layers = [ResBlock(ch, time_embed_dim, dropout,
-                    out_channels=int(mult * model_channels), dims=dims,
-                    use_checkpoint=use_checkpoint, use_scale_shift_norm=
-                    use_scale_shift_norm, global_latent=global_latent)]
+                layers = [
+                    ResBlock(
+                        ch,
+                        time_embed_dim,
+                        dropout,
+                        out_channels=int(mult * model_channels),
+                        dims=dims,
+                        use_checkpoint=use_checkpoint,
+                        use_scale_shift_norm=use_scale_shift_norm,
+                        global_latent=global_latent,
+                    )
+                ]
                 ch = int(mult * model_channels)
                 if ds in attention_resolutions:
-                    layers.append(AttentionBlock(ch, use_checkpoint=
-                        use_checkpoint, num_heads=num_heads,
-                        num_head_channels=num_head_channels,
-                        use_new_attention_order=use_new_attention_order))
+                    layers.append(
+                        AttentionBlock(
+                            ch,
+                            use_checkpoint=use_checkpoint,
+                            num_heads=num_heads,
+                            num_head_channels=num_head_channels,
+                            use_new_attention_order=use_new_attention_order,
+                        )
+                    )
                 self.input_blocks.append(TimestepEmbedSequential(*layers))
                 self._feature_size += ch
                 input_block_chans.append(ch)
             if level != len(channel_mult) - 1:
                 out_ch = ch
-                self.input_blocks.append(TimestepEmbedSequential(ResBlock(
-                    ch, time_embed_dim, dropout, out_channels=out_ch, dims=
-                    dims, use_checkpoint=use_checkpoint,
-                    use_scale_shift_norm=use_scale_shift_norm, down=True,
-                    global_latent=global_latent) if resblock_updown else
-                    Downsample(ch, conv_resample, dims=dims, out_channels=
-                    out_ch)))
+                self.input_blocks.append(
+                    TimestepEmbedSequential(
+                        ResBlock(
+                            ch,
+                            time_embed_dim,
+                            dropout,
+                            out_channels=out_ch,
+                            dims=dims,
+                            use_checkpoint=use_checkpoint,
+                            use_scale_shift_norm=use_scale_shift_norm,
+                            down=True,
+                            global_latent=global_latent,
+                        )
+                        if resblock_updown
+                        else Downsample(
+                            ch, conv_resample, dims=dims, out_channels=out_ch
+                        )
+                    )
+                )
                 ch = out_ch
                 input_block_chans.append(ch)
                 ds *= 2
                 self._feature_size += ch
-        self.middle_block = TimestepEmbedSequential(ResBlock(ch,
-            time_embed_dim, dropout, dims=dims, use_checkpoint=
-            use_checkpoint, use_scale_shift_norm=use_scale_shift_norm,
-            global_latent=global_latent), AttentionBlock(ch, use_checkpoint
-            =use_checkpoint, num_heads=num_heads, num_head_channels=
-            num_head_channels, use_new_attention_order=
-            use_new_attention_order), ResBlock(ch, time_embed_dim, dropout,
-            dims=dims, use_checkpoint=use_checkpoint, use_scale_shift_norm=
-            use_scale_shift_norm, global_latent=global_latent))
+        self.middle_block = TimestepEmbedSequential(
+            ResBlock(
+                ch,
+                time_embed_dim,
+                dropout,
+                dims=dims,
+                use_checkpoint=use_checkpoint,
+                use_scale_shift_norm=use_scale_shift_norm,
+                global_latent=global_latent,
+            ),
+            AttentionBlock(
+                ch,
+                use_checkpoint=use_checkpoint,
+                num_heads=num_heads,
+                num_head_channels=num_head_channels,
+                use_new_attention_order=use_new_attention_order,
+            ),
+            ResBlock(
+                ch,
+                time_embed_dim,
+                dropout,
+                dims=dims,
+                use_checkpoint=use_checkpoint,
+                use_scale_shift_norm=use_scale_shift_norm,
+                global_latent=global_latent,
+            ),
+        )
         self._feature_size += ch
         self.output_blocks = paddle.nn.LayerList(sublayers=[])
         for level, mult in list(enumerate(channel_mult))[::-1]:
             for i in range(num_res_blocks + 1):
                 ich = input_block_chans.pop()
-                layers = [ResBlock(ch + ich, time_embed_dim, dropout,
-                    out_channels=int(model_channels * mult), dims=dims,
-                    use_checkpoint=use_checkpoint, use_scale_shift_norm=
-                    use_scale_shift_norm, global_latent=global_latent)]
+                layers = [
+                    ResBlock(
+                        ch + ich,
+                        time_embed_dim,
+                        dropout,
+                        out_channels=int(model_channels * mult),
+                        dims=dims,
+                        use_checkpoint=use_checkpoint,
+                        use_scale_shift_norm=use_scale_shift_norm,
+                        global_latent=global_latent,
+                    )
+                ]
                 ch = int(model_channels * mult)
                 if ds in attention_resolutions:
-                    layers.append(AttentionBlock(ch, use_checkpoint=
-                        use_checkpoint, num_heads=num_heads_upsample,
-                        num_head_channels=num_head_channels,
-                        use_new_attention_order=use_new_attention_order))
+                    layers.append(
+                        AttentionBlock(
+                            ch,
+                            use_checkpoint=use_checkpoint,
+                            num_heads=num_heads_upsample,
+                            num_head_channels=num_head_channels,
+                            use_new_attention_order=use_new_attention_order,
+                        )
+                    )
                 if level and i == num_res_blocks:
                     out_ch = ch
-                    layers.append(ResBlock(ch, time_embed_dim, dropout,
-                        out_channels=out_ch, dims=dims, use_checkpoint=
-                        use_checkpoint, use_scale_shift_norm=
-                        use_scale_shift_norm, up=True, global_latent=
-                        global_latent) if resblock_updown else Upsample(ch,
-                        conv_resample, dims=dims, out_channels=out_ch))
+                    layers.append(
+                        ResBlock(
+                            ch,
+                            time_embed_dim,
+                            dropout,
+                            out_channels=out_ch,
+                            dims=dims,
+                            use_checkpoint=use_checkpoint,
+                            use_scale_shift_norm=use_scale_shift_norm,
+                            up=True,
+                            global_latent=global_latent,
+                        )
+                        if resblock_updown
+                        else Upsample(ch, conv_resample, dims=dims, out_channels=out_ch)
+                    )
                     ds //= 2
                 self.output_blocks.append(TimestepEmbedSequential(*layers))
                 self._feature_size += ch
-        self.out = paddle.nn.Sequential(normalization(ch), paddle.nn.Silu(),
-            zero_module(conv_nd(dims, input_ch, out_channels, 3, padding=1)))
+        self.out = paddle.nn.Sequential(
+            normalization(ch),
+            paddle.nn.Silu(),
+            zero_module(conv_nd(dims, input_ch, out_channels, 3, padding=1)),
+        )
 
     def forward(self, x, timesteps, physic_cond, detail_cond):
         """
@@ -487,8 +643,7 @@ class UNetModel(paddle.nn.Layer):
         :return: an [N x C x ...] Tensor of outputs.
         """
         hs = []
-        emb = self.time_embed(timestep_embedding(timesteps, self.
-            model_channels))
+        emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
         if physic_cond is not None:
             x = paddle.concat(x=[x, physic_cond], axis=1)
         h = x
@@ -532,38 +687,59 @@ class DiffusionRig(paddle.nn.Layer):
     :param encoder_type: the type of the global latent encoder.
     """
 
-    def __init__(self, image_size, learn_sigma, num_channels,
-        num_res_blocks, channel_mult, num_heads, num_head_channels,
-        num_heads_upsample, attention_resolutions, dropout, use_checkpoint,
-        use_scale_shift_norm, resblock_updown, use_new_attention_order,
-        latent_dim, in_channels, encoder_type):
+    def __init__(
+        self,
+        image_size,
+        learn_sigma,
+        num_channels,
+        num_res_blocks,
+        channel_mult,
+        num_heads,
+        num_head_channels,
+        num_heads_upsample,
+        attention_resolutions,
+        dropout,
+        use_checkpoint,
+        use_scale_shift_norm,
+        resblock_updown,
+        use_new_attention_order,
+        latent_dim,
+        in_channels,
+        encoder_type,
+    ):
         super().__init__()
-        self.denoisingUNet = create_model(image_size, num_channels,
-            num_res_blocks, channel_mult=channel_mult, learn_sigma=
-            learn_sigma, use_checkpoint=use_checkpoint,
-            attention_resolutions=attention_resolutions, num_heads=
-            num_heads, num_head_channels=num_head_channels,
-            num_heads_upsample=num_heads_upsample, use_scale_shift_norm=
-            use_scale_shift_norm, dropout=dropout, resblock_updown=
-            resblock_updown, use_new_attention_order=
-            use_new_attention_order, latent_dim=latent_dim, in_channels=
-            in_channels)
+        self.denoisingUNet = create_model(
+            image_size,
+            num_channels,
+            num_res_blocks,
+            channel_mult=channel_mult,
+            learn_sigma=learn_sigma,
+            use_checkpoint=use_checkpoint,
+            attention_resolutions=attention_resolutions,
+            num_heads=num_heads,
+            num_head_channels=num_head_channels,
+            num_heads_upsample=num_heads_upsample,
+            use_scale_shift_norm=use_scale_shift_norm,
+            dropout=dropout,
+            resblock_updown=resblock_updown,
+            use_new_attention_order=use_new_attention_order,
+            latent_dim=latent_dim,
+            in_channels=in_channels,
+        )
         self.encoder_type = encoder_type
         self.latent_dim = latent_dim
-        if encoder_type == 'resnet18':
-            r18 = torchvision.models.resnet18()
+        if encoder_type == "resnet18":
+            r18 = paddle.vision.models.resnet18()
             in_fts = r18.fc.in_features
-            r18.fc = paddle.nn.Linear(in_features=in_fts, out_features=
-                latent_dim)
+            r18.fc = paddle.nn.Linear(in_features=in_fts, out_features=latent_dim)
             self.encoder = r18
-        elif encoder_type == 'resnet50':
-            r50 = torchvision.models.resnet50()
+        elif encoder_type == "resnet50":
+            r50 = paddle.vision.models.resnet50()
             in_fts = r50.fc.in_features
-            r50.fc = paddle.nn.Linear(in_features=in_fts, out_features=
-                latent_dim)
+            r50.fc = paddle.nn.Linear(in_features=in_fts, out_features=latent_dim)
             self.encoder = r50
         else:
-            raise NotImplementedError(f'unknown encoder type: {encoder_type}')
+            raise NotImplementedError(f"unknown encoder type: {encoder_type}")
 
     def forward(self, x, t, physic_cond, detail_cond=None, x_start=None):
         assert detail_cond is not None or x_start is not None
@@ -577,12 +753,25 @@ class DiffusionRig(paddle.nn.Layer):
         return self.encoder(x)
 
 
-def create_model(image_size, num_channels, num_res_blocks, channel_mult='',
-    learn_sigma=False, use_checkpoint=False, attention_resolutions='16',
-    num_heads=1, num_head_channels=-1, num_heads_upsample=-1,
-    use_scale_shift_norm=False, dropout=0, resblock_updown=False,
-    use_new_attention_order=False, latent_dim=64, in_channels=12):
-    if channel_mult == '':
+def create_model(
+    image_size,
+    num_channels,
+    num_res_blocks,
+    channel_mult="",
+    learn_sigma=False,
+    use_checkpoint=False,
+    attention_resolutions="16",
+    num_heads=1,
+    num_head_channels=-1,
+    num_heads_upsample=-1,
+    use_scale_shift_norm=False,
+    dropout=0,
+    resblock_updown=False,
+    use_new_attention_order=False,
+    latent_dim=64,
+    in_channels=12,
+):
+    if channel_mult == "":
         if image_size == 512:
             channel_mult = 0.5, 1, 1, 2, 2, 4, 4
         elif image_size == 256:
@@ -592,20 +781,28 @@ def create_model(image_size, num_channels, num_res_blocks, channel_mult='',
         elif image_size == 64:
             channel_mult = 1, 2, 3, 4
         else:
-            raise ValueError(f'unsupported image size: {image_size}')
+            raise ValueError(f"unsupported image size: {image_size}")
     else:
-        channel_mult = tuple(int(ch_mult) for ch_mult in channel_mult.split
-            (','))
+        channel_mult = tuple(int(ch_mult) for ch_mult in channel_mult.split(","))
     attention_ds = []
-    for res in attention_resolutions.split(','):
+    for res in attention_resolutions.split(","):
         attention_ds.append(image_size // int(res))
     out_channels = 3 if not learn_sigma else 6
-    return UNetModel(image_size=image_size, in_channels=in_channels,
-        model_channels=num_channels, out_channels=out_channels,
-        num_res_blocks=num_res_blocks, attention_resolutions=tuple(
-        attention_ds), dropout=dropout, channel_mult=channel_mult,
-        use_checkpoint=use_checkpoint, num_heads=num_heads,
-        num_head_channels=num_head_channels, num_heads_upsample=
-        num_heads_upsample, use_scale_shift_norm=use_scale_shift_norm,
-        resblock_updown=resblock_updown, use_new_attention_order=
-        use_new_attention_order, global_latent=latent_dim)
+    return UNetModel(
+        image_size=image_size,
+        in_channels=in_channels,
+        model_channels=num_channels,
+        out_channels=out_channels,
+        num_res_blocks=num_res_blocks,
+        attention_resolutions=tuple(attention_ds),
+        dropout=dropout,
+        channel_mult=channel_mult,
+        use_checkpoint=use_checkpoint,
+        num_heads=num_heads,
+        num_head_channels=num_head_channels,
+        num_heads_upsample=num_heads_upsample,
+        use_scale_shift_norm=use_scale_shift_norm,
+        resblock_updown=resblock_updown,
+        use_new_attention_order=use_new_attention_order,
+        global_latent=latent_dim,
+    )

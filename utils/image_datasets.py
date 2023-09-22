@@ -1,37 +1,68 @@
-import paddle
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import math
-import random
-from PIL import Image
-import blobfile as bf
-from mpi4py import MPI
-import numpy as np
-from io import BytesIO
-import lmdb
 import pickle
+import random
+from io import BytesIO
+
+import blobfile as bf
+import lmdb
+import numpy as np
+import paddle
+from mpi4py import MPI
+from PIL import Image
 
 
 def load_data(*, data_dir, batch_size, num_workers=16):
     if not data_dir:
-        raise ValueError('unspecified data directory')
-    dataset = ImageDataset(path=data_dir, shard=MPI.COMM_WORLD.Get_rank(),
-        num_shards=MPI.COMM_WORLD.Get_size())
-    loader = paddle.io.DataLoader(dataset, batch_size=batch_size,
-        shuffle=True, num_workers=num_workers, drop_last=True)
+        raise ValueError("unspecified data directory")
+    dataset = ImageDataset(
+        path=data_dir,
+        shard=MPI.COMM_WORLD.Get_rank(),
+        num_shards=MPI.COMM_WORLD.Get_size(),
+    )
+    loader = paddle.io.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        drop_last=True,
+    )
     while True:
         yield from loader
 
 
 def load_data_local(*, data_dir, batch_size):
-    env = lmdb.open(data_dir, max_readers=32, readonly=True, lock=False,
-        readahead=False, meminit=False)
+    env = lmdb.open(
+        data_dir,
+        max_readers=32,
+        readonly=True,
+        lock=False,
+        readahead=False,
+        meminit=False,
+    )
     if not env:
-        raise IOError('Cannot open lmdb dataset', data_dir)
+        raise IOError("Cannot open lmdb dataset", data_dir)
     with env.begin(write=False) as txn:
-        length = int(txn.get('length'.encode('utf-8')).decode('utf-8'))
-    print('data: ', length)
->>>    transform = [torchvision.transforms.ToTensor(), torchvision.transforms.
-        Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
->>>    transform = torchvision.transforms.Compose(transform)
+        length = int(txn.get("length".encode("utf-8")).decode("utf-8"))
+    print("data: ", length)
+    transform = [
+        paddle.vision.transforms.ToTensor(),
+        paddle.vision.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    ]
+    transform = paddle.vision.transforms.Compose(transform)
     zfill = 6
     data_image = []
     data_rendered = []
@@ -39,13 +70,13 @@ def load_data_local(*, data_dir, batch_size):
     data_albedo = []
     with env.begin(write=False) as txn:
         for index in range(length):
-            key = f'image_{str(index).zfill(zfill)}'.encode('utf-8')
+            key = f"image_{str(index).zfill(zfill)}".encode("utf-8")
             image_bytes = txn.get(key)
-            key = f'normal_{str(index).zfill(zfill)}'.encode('utf-8')
+            key = f"normal_{str(index).zfill(zfill)}".encode("utf-8")
             normal_bytes = txn.get(key)
-            key = f'albedo_{str(index).zfill(zfill)}'.encode('utf-8')
+            key = f"albedo_{str(index).zfill(zfill)}".encode("utf-8")
             albedo_bytes = txn.get(key)
-            key = f'rendered_{str(index).zfill(zfill)}'.encode('utf-8')
+            key = f"rendered_{str(index).zfill(zfill)}".encode("utf-8")
             rendered_bytes = txn.get(key)
             buffer = BytesIO(image_bytes)
             image = Image.open(buffer)
@@ -66,26 +97,36 @@ def load_data_local(*, data_dir, batch_size):
     data_albedo = paddle.stack(x=data_albedo, axis=0)
     while True:
         idxs = np.random.choice(length, batch_size, replace=False)
-        yield {'image': data_image[idxs], 'rendered': data_rendered[idxs],
-            'normal': data_normal[idxs], 'albedo': data_albedo[idxs]}
+        yield {
+            "image": data_image[idxs],
+            "rendered": data_rendered[idxs],
+            "normal": data_normal[idxs],
+            "albedo": data_albedo[idxs],
+        }
 
 
 class ImageDataset(paddle.io.Dataset):
-
     def __init__(self, path, shard=0, num_shards=1):
         super().__init__()
         self.zfill = 6
         self.path = path
-        self.env = lmdb.open(path, max_readers=32, readonly=True, lock=
-            False, readahead=False, meminit=False)
+        self.env = lmdb.open(
+            path,
+            max_readers=32,
+            readonly=True,
+            lock=False,
+            readahead=False,
+            meminit=False,
+        )
         if not self.env:
-            raise IOError('Cannot open lmdb dataset', path)
+            raise IOError("Cannot open lmdb dataset", path)
         with self.env.begin(write=False) as txn:
-            self.length = int(txn.get('length'.encode('utf-8')).decode('utf-8')
-                )
->>>        transform = [torchvision.transforms.ToTensor(), torchvision.
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
->>>        self.transform = torchvision.transforms.Compose(transform)
+            self.length = int(txn.get("length".encode("utf-8")).decode("utf-8"))
+        transform = [
+            paddle.vision.transforms.ToTensor(),
+            paddle.vision.transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ]
+        self.transform = paddle.vision.transforms.Compose(transform)
         self.idxs = [*range(self.length)][shard:][::num_shards]
 
     def __len__(self):
@@ -94,13 +135,13 @@ class ImageDataset(paddle.io.Dataset):
     def __getitem__(self, index):
         index = self.idxs[index]
         with self.env.begin(write=False) as txn:
-            key = f'image_{str(index).zfill(self.zfill)}'.encode('utf-8')
+            key = f"image_{str(index).zfill(self.zfill)}".encode("utf-8")
             image_bytes = txn.get(key)
-            key = f'normal_{str(index).zfill(self.zfill)}'.encode('utf-8')
+            key = f"normal_{str(index).zfill(self.zfill)}".encode("utf-8")
             normal_bytes = txn.get(key)
-            key = f'albedo_{str(index).zfill(self.zfill)}'.encode('utf-8')
+            key = f"albedo_{str(index).zfill(self.zfill)}".encode("utf-8")
             albedo_bytes = txn.get(key)
-            key = f'rendered_{str(index).zfill(self.zfill)}'.encode('utf-8')
+            key = f"rendered_{str(index).zfill(self.zfill)}".encode("utf-8")
             rendered_bytes = txn.get(key)
         buffer = BytesIO(image_bytes)
         image = Image.open(buffer)
@@ -111,5 +152,9 @@ class ImageDataset(paddle.io.Dataset):
         buffer = BytesIO(rendered_bytes)
         rendered = pickle.load(buffer)
         image = self.transform(image)
-        return {'image': image, 'normal': normal, 'albedo': albedo,
-            'rendered': rendered}
+        return {
+            "image": image,
+            "normal": normal,
+            "albedo": albedo,
+            "rendered": rendered,
+        }

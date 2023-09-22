@@ -1,91 +1,111 @@
-import sys
-sys.path.append('/nfs/github/recurrent/out/utils')
-import paddle_aux
-import paddle
-import argparse
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__),
-    '..')))
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import argparse
+import pickle
 from glob import glob
-from utils.script_util import model_and_diffusion_defaults, create_model_and_diffusion, add_dict_to_argparser, args_to_dict
+
+import paddle
+
+from decalib.datasets import datasets as deca_dataset
 from decalib.deca import DECA
 from decalib.utils.config import cfg as deca_cfg
-from decalib.datasets import datasets as deca_dataset
-import pickle
+from utils.script_util import (add_dict_to_argparser, args_to_dict,
+                               create_model_and_diffusion,
+                               model_and_diffusion_defaults)
 
 
-def create_inter_data(dataset, modes, meanshape_path=''):
+def create_inter_data(dataset, modes, meanshape_path=""):
     deca_cfg.model.use_tex = True
-    deca_cfg.model.tex_path = 'data/FLAME_texture.npz'
-    deca_cfg.model.tex_type = 'FLAME'
-    deca_cfg.rasterizer_type = 'paddle3d'
+    deca_cfg.model.tex_path = "data/FLAME_texture.npz"
+    deca_cfg.model.tex_type = "FLAME"
+    deca_cfg.rasterizer_type = "paddle3d"
     deca = DECA(config=deca_cfg)
     meanshape = None
     if os.path.exists(meanshape_path):
-        print('use meanshape: ', meanshape_path)
-        with open(meanshape_path, 'rb') as f:
+        print("use meanshape: ", meanshape_path)
+        with open(meanshape_path, "rb") as f:
             meanshape = pickle.load(f)
     else:
-        print('not use meanshape')
-    img2 = dataset[-1]['image'].unsqueeze(axis=0).cuda()
+        print("not use meanshape")
+    img2 = dataset[-1]["image"].unsqueeze(axis=0).cuda()
     with paddle.no_grad():
         code2 = deca.encode(img2)
-    image2 = dataset[-1]['original_image'].unsqueeze(axis=0).cuda()
+    image2 = dataset[-1]["original_image"].unsqueeze(axis=0).cuda()
     for i in range(len(dataset) - 1):
-        img1 = dataset[i]['image'].unsqueeze(axis=0).cuda()
+        img1 = dataset[i]["image"].unsqueeze(axis=0).cuda()
         with paddle.no_grad():
             code1 = deca.encode(img1)
         ffhq_center = None
         ffhq_center = deca.decode(code1, return_ffhq_center=True)
-        tform = dataset[i]['tform'].unsqueeze(axis=0)
+        tform = dataset[i]["tform"].unsqueeze(axis=0)
         x = paddle.linalg.inv(x=tform)
         perm_3 = list(range(x.ndim))
         perm_3[1] = 2
         perm_3[2] = 1
         tform = x.transpose(perm=perm_3).cuda()
-        original_image = dataset[i]['original_image'].unsqueeze(axis=0).to(
-            'cuda')
-        code1['tform'] = tform
+        original_image = dataset[i]["original_image"].unsqueeze(axis=0).to("cuda")
+        code1["tform"] = tform
         if meanshape is not None:
-            code1['shape'] = meanshape
+            code1["shape"] = meanshape
         for mode in modes:
             code = {}
             for k in code1:
                 code[k] = code1[k].clone()
             origin_rendered = None
-            if mode == 'pose':
-                code['pose'][:, :3] = code2['pose'][:, :3]
-            elif mode == 'light':
-                code['light'] = code2['light']
-            elif mode == 'exp':
-                code['exp'] = code2['exp']
-                code['pose'][:, 3:] = code2['pose'][:, 3:]
-            elif mode == 'latent':
+            if mode == "pose":
+                code["pose"][:, :3] = code2["pose"][:, :3]
+            elif mode == "light":
+                code["light"] = code2["light"]
+            elif mode == "exp":
+                code["exp"] = code2["exp"]
+                code["pose"][:, 3:] = code2["pose"][:, 3:]
+            elif mode == "latent":
                 pass
-            opdict, _ = deca.decode(code, render_orig=True, original_image=
-                original_image, tform=code['tform'], align_ffhq=True,
-                ffhq_center=ffhq_center)
-            origin_rendered = opdict['rendered_images'].detach()
+            opdict, _ = deca.decode(
+                code,
+                render_orig=True,
+                original_image=original_image,
+                tform=code["tform"],
+                align_ffhq=True,
+                ffhq_center=ffhq_center,
+            )
+            origin_rendered = opdict["rendered_images"].detach()
             batch = {}
-            batch['image'] = original_image * 2 - 1
-            batch['image2'] = image2 * 2 - 1
-            batch['rendered'] = opdict['rendered_images'].detach()
-            batch['normal'] = opdict['normal_images'].detach()
-            batch['albedo'] = opdict['albedo_images'].detach()
-            batch['mode'] = mode
-            batch['origin_rendered'] = origin_rendered
+            batch["image"] = original_image * 2 - 1
+            batch["image2"] = image2 * 2 - 1
+            batch["rendered"] = opdict["rendered_images"].detach()
+            batch["normal"] = opdict["normal_images"].detach()
+            batch["albedo"] = opdict["albedo_images"].detach()
+            batch["mode"] = mode
+            batch["origin_rendered"] = origin_rendered
             yield batch
 
 
 def main():
     args = create_argparser().parse_args()
-    print('creating model and diffusion...')
-    model, diffusion = create_model_and_diffusion(**args_to_dict(args,
-        model_and_diffusion_defaults().keys()))
+    print("creating model and diffusion...")
+    model, diffusion = create_model_and_diffusion(
+        **args_to_dict(args, model_and_diffusion_defaults().keys())
+    )
     ckpt = paddle.load(path=args.model_path)
     model.set_state_dict(state_dict=ckpt)
-    model.cuda()
+    model.to(paddle.CUDAPlace())
     model.eval()
     imagepath_list = []
     if not os.path.exists(args.source) or not os.path.exists(args.target):
@@ -93,54 +113,67 @@ def main():
         return
     imagepath_list = []
     if os.path.isdir(args.source):
-        imagepath_list += glob(args.source + '/*.jpg') + glob(args.source +
-            '/*.png') + glob(args.source + '/*.bmp')
+        imagepath_list += (
+            glob(args.source + "/*.jpg")
+            + glob(args.source + "/*.png")
+            + glob(args.source + "/*.bmp")
+        )
     else:
         imagepath_list += [args.source]
     imagepath_list += [args.target]
-    dataset = deca_dataset.TestData(imagepath_list, iscrop=True, size=args.
-        image_size)
-    modes = args.modes.split(',')
+    dataset = deca_dataset.TestData(imagepath_list, iscrop=True, size=args.image_size)
+    modes = args.modes.split(",")
     data = create_inter_data(dataset, modes, args.meanshape)
-    sample_fn = (diffusion.p_sample_loop if not args.use_ddim else
-        diffusion.ddim_sample_loop)
-    os.system('mkdir -p ' + args.output_dir)
-    noise = paddle.randn(shape=[1, 3, args.image_size, args.image_size]).to(
-        'cuda')
+    sample_fn = (
+        diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
+    )
+    os.system("mkdir -p " + args.output_dir)
+    noise = paddle.randn(shape=[1, 3, args.image_size, args.image_size]).to("cuda")
     vis_dir = args.output_dir
     idx = 0
     for batch in data:
-        image = batch['image']
-        image2 = batch['image2']
-        rendered, normal, albedo = batch['rendered'], batch['normal'], batch[
-            'albedo']
+        image = batch["image"]
+        image2 = batch["image2"]
+        rendered, normal, albedo = batch["rendered"], batch["normal"], batch["albedo"]
         physic_cond = paddle.concat(x=[rendered, normal, albedo], axis=1)
         image = image
         physic_cond = physic_cond
         with paddle.no_grad():
-            if batch['mode'] == 'latent':
+            if batch["mode"] == "latent":
                 detail_cond = model.encode_cond(image2)
             else:
                 detail_cond = model.encode_cond(image)
-        sample = sample_fn(model, (1, 3, args.image_size, args.image_size),
-            noise=noise, clip_denoised=args.clip_denoised, model_kwargs={
-            'physic_cond': physic_cond, 'detail_cond': detail_cond})
+        sample = sample_fn(
+            model,
+            (1, 3, args.image_size, args.image_size),
+            noise=noise,
+            clip_denoised=args.clip_denoised,
+            model_kwargs={"physic_cond": physic_cond, "detail_cond": detail_cond},
+        )
         sample = (sample + 1) / 2.0
         sample = sample
->>>        torchvision.utils.save_image(sample, os.path.join(vis_dir, '{}_'.
-            format(idx) + batch['mode']) + '.png')
+        # paddle.vision.utils.save_image(sample, os.path.join(vis_dir, '{}_'.
+        #     format(idx) + batch['mode']) + '.png')
         idx += 1
 
 
 def create_argparser():
-    defaults = dict(clip_denoised=True, num_samples=10000, use_ddim=True,
-        model_path='', source='', target='', output_dir='', modes=
-        'pose,exp,light', meanshape='')
+    defaults = dict(
+        clip_denoised=True,
+        num_samples=10000,
+        use_ddim=True,
+        model_path="",
+        source="",
+        target="",
+        output_dir="",
+        modes="pose,exp,light",
+        meanshape="",
+    )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)
     return parser
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

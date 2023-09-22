@@ -16,7 +16,7 @@
 ```bash
 conda create -n diffusionrig python=3.8
 conda activate diffusionrig
-conda install pytorch=1.11 cudatoolkit=11.3 torchvision -c pytorch
+conda install paddlepaddle-gpu
 conda install mpi4py dlib scikit-learn scikit-image tqdm -c conda-forge
 pip install lmdb opencv-python kornia yacs blobfile chumpy face_alignment
 ```
@@ -58,6 +58,8 @@ For FFHQ, you need to align the images first with:
 
 ```bash
 python scripts/create_data.py --data_dir PATH_TO_FFHQ_ALIGNED_IMAGES --output_dir ffhq256_deca.lmdb --image_size 256 --use_meanshape False
+
+python scripts/create_data.py --data_dir data/thumbnails128x128 --output_dir ffhq256_deca.lmdb --image_size 256 --use_meanshape False
 ```
 
 For the personal photo album (we use around 20 per identity in our experiments), put all images into a folder and then align them by running:
@@ -108,7 +110,7 @@ It takes around 30 minutes on a single Nvidia V100 GPU.
 We provide a script to edit face appearance by modifying the physical buffers. Run:
 
 ```bash
-python scripts/inference.py --source SOURCE_IMAGE_FILE --target TARGET_IMAGE_FILE --output_dir OUTPUT_DIR --modes light --model_path PATH_TO_MODEL --meanshape PATH_TO_MEANSHAPE --timestep_respacing ddim20 
+python scripts/inference.py --source SOURCE_IMAGE_FILE --target TARGET_IMAGE_FILE --output_dir OUTPUT_DIR --modes light --model_path PATH_TO_MODEL --meanshape PATH_TO_MEANSHAPE --timestep_respacing ddim20
 ```
 
 to use the physical parameters (e.g., lighting, expression, or head pose) of the target image to edit the source image.
@@ -118,7 +120,7 @@ to use the physical parameters (e.g., lighting, expression, or head pose) of the
 
 If the issue is code-related, please open an issue here.
 
-For questions, please also consider opening an issue as it may benefit future reader. Otherwise, email Zheng Ding at 
+For questions, please also consider opening an issue as it may benefit future reader. Otherwise, email Zheng Ding at
 [zhding@ucsd.edu](mailto:zhding@ucsd.edu).
 
 

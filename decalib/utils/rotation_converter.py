@@ -1,7 +1,25 @@
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
 import sys
-sys.path.append('/nfs/github/recurrent/out/utils')
-import paddle_aux
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import paddle
+
+import utils.paddle_add
+
 """ Rotation Converter
 Repre: euler angle(3), angle axis(3), rotation matrix(3x3), quaternion(4)
 ref: https://kornia.readthedocs.io/en/v0.1.2/_modules/torchgeometry/core/conversions.html#
@@ -20,7 +38,7 @@ ref: smplx/lbs
 batch_rodrigues: axis angle -> matrix
 # 
 """
-pi = paddle.to_tensor(data=[3.141592653589793], dtype='float32')
+pi = paddle.to_tensor(data=[3.141592653589793], dtype="float32")
 
 
 def rad2deg(tensor):
@@ -39,9 +57,10 @@ def rad2deg(tensor):
         >>> output = tgm.rad2deg(input)
     """
     if not paddle.is_tensor(x=tensor):
-        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(
-            type(tensor)))
-    return 180.0 * tensor / pi.to(tensor.place).astype(tensor.dtype)
+        raise TypeError("Input type is not a torch.Tensor. Got {}".format(type(tensor)))
+    return (
+        180.0 * tensor / paddle.to_tensor(pi, place=tensor.place).astype(tensor.dtype)
+    )
 
 
 def deg2rad(tensor):
@@ -61,9 +80,10 @@ def deg2rad(tensor):
         >>> output = tgm.deg2rad(input)
     """
     if not paddle.is_tensor(x=tensor):
-        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(
-            type(tensor)))
-    return tensor * pi.to(tensor.place).astype(tensor.dtype) / 180.0
+        raise TypeError("Input type is not a torch.Tensor. Got {}".format(type(tensor)))
+    return (
+        tensor * paddle.to_tensor(pi, place=tensor.place).astype(tensor.dtype) / 180.0
+    )
 
 
 def euler_to_quaternion(r):
@@ -79,8 +99,9 @@ def euler_to_quaternion(r):
     sy = paddle.sin(x=y)
     cx = paddle.cos(x=x)
     sx = paddle.sin(x=x)
-    quaternion = paddle.zeros_like(x=r.tile(repeat_times=[1, 2]))[(...), :4
-        ].to(r.place)
+    quaternion = paddle.to_tensor(
+        paddle.zeros_like(x=r.tile(repeat_times=[1, 2]))[(...), :4], place=r.place
+    )
     quaternion[..., 0] += cx * cy * cz - sx * sy * sz
     quaternion[..., 1] += cx * sy * sz + cy * cz * sx
     quaternion[..., 2] += cx * cz * sy - sx * cy * sz
@@ -109,12 +130,15 @@ def rotation_matrix_to_quaternion(rotation_matrix, eps=1e-06):
         >>> output = tgm.rotation_matrix_to_quaternion(input)  # Nx4
     """
     if not paddle.is_tensor(x=rotation_matrix):
-        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(
-            type(rotation_matrix)))
+        raise TypeError(
+            "Input type is not a torch.Tensor. Got {}".format(type(rotation_matrix))
+        )
     if len(rotation_matrix.shape) > 3:
         raise ValueError(
-            'Input size must be a three dimensional tensor. Got {}'.format(
-            rotation_matrix.shape))
+            "Input size must be a three dimensional tensor. Got {}".format(
+                rotation_matrix.shape
+            )
+        )
     x = rotation_matrix
     perm_0 = list(range(x.ndim))
     perm_0[1] = 2
@@ -124,42 +148,68 @@ def rotation_matrix_to_quaternion(rotation_matrix, eps=1e-06):
     mask_d0_d1 = rmat_t[:, (0), (0)] > rmat_t[:, (1), (1)]
     mask_d0_nd1 = rmat_t[:, (0), (0)] < -rmat_t[:, (1), (1)]
     t0 = 1 + rmat_t[:, (0), (0)] - rmat_t[:, (1), (1)] - rmat_t[:, (2), (2)]
-    q0 = paddle.stack(x=[rmat_t[:, (1), (2)] - rmat_t[:, (2), (1)], t0, 
-        rmat_t[:, (0), (1)] + rmat_t[:, (1), (0)], rmat_t[:, (2), (0)] +
-        rmat_t[:, (0), (2)]], axis=-1)
+    q0 = paddle.stack(
+        x=[
+            rmat_t[:, (1), (2)] - rmat_t[:, (2), (1)],
+            t0,
+            rmat_t[:, (0), (1)] + rmat_t[:, (1), (0)],
+            rmat_t[:, (2), (0)] + rmat_t[:, (0), (2)],
+        ],
+        axis=-1,
+    )
     t0_rep = t0.tile(repeat_times=[4, 1]).t()
     t1 = 1 - rmat_t[:, (0), (0)] + rmat_t[:, (1), (1)] - rmat_t[:, (2), (2)]
-    q1 = paddle.stack(x=[rmat_t[:, (2), (0)] - rmat_t[:, (0), (2)], rmat_t[
-        :, (0), (1)] + rmat_t[:, (1), (0)], t1, rmat_t[:, (1), (2)] +
-        rmat_t[:, (2), (1)]], axis=-1)
+    q1 = paddle.stack(
+        x=[
+            rmat_t[:, (2), (0)] - rmat_t[:, (0), (2)],
+            rmat_t[:, (0), (1)] + rmat_t[:, (1), (0)],
+            t1,
+            rmat_t[:, (1), (2)] + rmat_t[:, (2), (1)],
+        ],
+        axis=-1,
+    )
     t1_rep = t1.tile(repeat_times=[4, 1]).t()
     t2 = 1 - rmat_t[:, (0), (0)] - rmat_t[:, (1), (1)] + rmat_t[:, (2), (2)]
-    q2 = paddle.stack(x=[rmat_t[:, (0), (1)] - rmat_t[:, (1), (0)], rmat_t[
-        :, (2), (0)] + rmat_t[:, (0), (2)], rmat_t[:, (1), (2)] + rmat_t[:,
-        (2), (1)], t2], axis=-1)
+    q2 = paddle.stack(
+        x=[
+            rmat_t[:, (0), (1)] - rmat_t[:, (1), (0)],
+            rmat_t[:, (2), (0)] + rmat_t[:, (0), (2)],
+            rmat_t[:, (1), (2)] + rmat_t[:, (2), (1)],
+            t2,
+        ],
+        axis=-1,
+    )
     t2_rep = t2.tile(repeat_times=[4, 1]).t()
     t3 = 1 + rmat_t[:, (0), (0)] + rmat_t[:, (1), (1)] + rmat_t[:, (2), (2)]
-    q3 = paddle.stack(x=[t3, rmat_t[:, (1), (2)] - rmat_t[:, (2), (1)], 
-        rmat_t[:, (2), (0)] - rmat_t[:, (0), (2)], rmat_t[:, (0), (1)] -
-        rmat_t[:, (1), (0)]], axis=-1)
+    q3 = paddle.stack(
+        x=[
+            t3,
+            rmat_t[:, (1), (2)] - rmat_t[:, (2), (1)],
+            rmat_t[:, (2), (0)] - rmat_t[:, (0), (2)],
+            rmat_t[:, (0), (1)] - rmat_t[:, (1), (0)],
+        ],
+        axis=-1,
+    )
     t3_rep = t3.tile(repeat_times=[4, 1]).t()
-    mask_c0 = mask_d2 * mask_d0_d1.astype(dtype='float32')
-    mask_c1 = mask_d2 * (1 - mask_d0_d1.astype(dtype='float32'))
-    mask_c2 = (1 - mask_d2.astype(dtype='float32')) * mask_d0_nd1
-    mask_c3 = (1 - mask_d2.astype(dtype='float32')) * (1 - mask_d0_nd1.
-        astype(dtype='float32'))
+    mask_c0 = mask_d2 * mask_d0_d1.astype(dtype="float32")
+    mask_c1 = mask_d2 * (1 - mask_d0_d1.astype(dtype="float32"))
+    mask_c2 = (1 - mask_d2.astype(dtype="float32")) * mask_d0_nd1
+    mask_c3 = (1 - mask_d2.astype(dtype="float32")) * (
+        1 - mask_d0_nd1.astype(dtype="float32")
+    )
     mask_c0 = mask_c0.reshape([-1, 1]).astype(dtype=q0.dtype)
     mask_c1 = mask_c1.reshape([-1, 1]).astype(dtype=q1.dtype)
     mask_c2 = mask_c2.reshape([-1, 1]).astype(dtype=q2.dtype)
     mask_c3 = mask_c3.reshape([-1, 1]).astype(dtype=q3.dtype)
     q = q0 * mask_c0 + q1 * mask_c1 + q2 * mask_c2 + q3 * mask_c3
-    q /= paddle.sqrt(x=t0_rep * mask_c0 + t1_rep * mask_c1 + t2_rep *
-        mask_c2 + t3_rep * mask_c3)
+    q /= paddle.sqrt(
+        x=t0_rep * mask_c0 + t1_rep * mask_c1 + t2_rep * mask_c2 + t3_rep * mask_c3
+    )
     q *= 0.5
     return q
 
 
-def angle_axis_to_quaternion(angle_axis: paddle.Tensor) ->paddle.Tensor:
+def angle_axis_to_quaternion(angle_axis: paddle.Tensor) -> paddle.Tensor:
     """Convert an angle axis to a quaternion.
 
     Adapted from ceres C++ library: ceres-solver/include/ceres/rotation.h
@@ -179,11 +229,13 @@ def angle_axis_to_quaternion(angle_axis: paddle.Tensor) ->paddle.Tensor:
         >>> quaternion = tgm.angle_axis_to_quaternion(angle_axis)  # Nx3
     """
     if not paddle.is_tensor(x=angle_axis):
-        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(
-            type(angle_axis)))
+        raise TypeError(
+            "Input type is not a torch.Tensor. Got {}".format(type(angle_axis))
+        )
     if not angle_axis.shape[-1] == 3:
-        raise ValueError('Input must be a tensor of shape Nx3 or 3. Got {}'
-            .format(angle_axis.shape))
+        raise ValueError(
+            "Input must be a tensor of shape Nx3 or 3. Got {}".format(angle_axis.shape)
+        )
     a0: paddle.Tensor = angle_axis[(...), 0:1]
     a1: paddle.Tensor = angle_axis[(...), 1:2]
     a2: paddle.Tensor = angle_axis[(...), 2:3]
@@ -195,8 +247,7 @@ def angle_axis_to_quaternion(angle_axis: paddle.Tensor) ->paddle.Tensor:
     k_neg: paddle.Tensor = 0.5 * ones
     k_pos: paddle.Tensor = paddle.sin(x=half_theta) / theta
     k: paddle.Tensor = paddle.where(condition=mask, x=k_pos, y=k_neg)
-    w: paddle.Tensor = paddle.where(condition=mask, x=paddle.cos(x=
-        half_theta), y=ones)
+    w: paddle.Tensor = paddle.where(condition=mask, x=paddle.cos(x=half_theta), y=ones)
     quaternion: paddle.Tensor = paddle.zeros_like(x=angle_axis)
     quaternion[(...), 0:1] += a0 * k
     quaternion[(...), 1:2] += a1 * k
@@ -213,15 +264,30 @@ def quaternion_to_rotation_matrix(quat):
     """
     norm_quat = quat
     norm_quat = norm_quat / norm_quat.norm(p=2, axis=1, keepdim=True)
-    w, x, y, z = norm_quat[:, (0)], norm_quat[:, (1)], norm_quat[:, (2)
-        ], norm_quat[:, (3)]
+    w, x, y, z = (
+        norm_quat[:, (0)],
+        norm_quat[:, (1)],
+        norm_quat[:, (2)],
+        norm_quat[:, (3)],
+    )
     B = quat.shape[0]
     w2, x2, y2, z2 = w.pow(y=2), x.pow(y=2), y.pow(y=2), z.pow(y=2)
     wx, wy, wz = w * x, w * y, w * z
     xy, xz, yz = x * y, x * z, y * z
-    rotMat = paddle.stack(x=[w2 + x2 - y2 - z2, 2 * xy - 2 * wz, 2 * wy + 2 *
-        xz, 2 * wz + 2 * xy, w2 - x2 + y2 - z2, 2 * yz - 2 * wx, 2 * xz - 2 *
-        wy, 2 * wx + 2 * yz, w2 - x2 - y2 + z2], axis=1).reshape([B, 3, 3])
+    rotMat = paddle.stack(
+        x=[
+            w2 + x2 - y2 - z2,
+            2 * xy - 2 * wz,
+            2 * wy + 2 * xz,
+            2 * wz + 2 * xy,
+            w2 - x2 + y2 - z2,
+            2 * yz - 2 * wx,
+            2 * xz - 2 * wy,
+            2 * wx + 2 * yz,
+            w2 - x2 - y2 + z2,
+        ],
+        axis=1,
+    ).reshape([B, 3, 3])
     return rotMat
 
 
@@ -245,27 +311,32 @@ def quaternion_to_angle_axis(quaternion: paddle.Tensor):
         >>> angle_axis = tgm.quaternion_to_angle_axis(quaternion)  # Nx3
     """
     if not paddle.is_tensor(x=quaternion):
-        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(
-            type(quaternion)))
+        raise TypeError(
+            "Input type is not a torch.Tensor. Got {}".format(type(quaternion))
+        )
     if not quaternion.shape[-1] == 4:
-        raise ValueError('Input must be a tensor of shape Nx4 or 4. Got {}'
-            .format(quaternion.shape))
+        raise ValueError(
+            "Input must be a tensor of shape Nx4 or 4. Got {}".format(quaternion.shape)
+        )
     q1: paddle.Tensor = quaternion[..., 1]
     q2: paddle.Tensor = quaternion[..., 2]
     q3: paddle.Tensor = quaternion[..., 3]
     sin_squared_theta: paddle.Tensor = q1 * q1 + q2 * q2 + q3 * q3
     sin_theta: paddle.Tensor = paddle.sqrt(x=sin_squared_theta)
     cos_theta: paddle.Tensor = quaternion[..., 0]
-    two_theta: paddle.Tensor = 2.0 * paddle.where(condition=cos_theta < 0.0,
-        x=paddle.atan2(x=-sin_theta, y=-cos_theta), y=paddle.atan2(x=
-        sin_theta, y=cos_theta))
+    two_theta: paddle.Tensor = 2.0 * paddle.where(
+        condition=cos_theta < 0.0,
+        x=paddle.atan2(x=-sin_theta, y=-cos_theta),
+        y=paddle.atan2(x=sin_theta, y=cos_theta),
+    )
     k_pos: paddle.Tensor = two_theta / sin_theta
-    k_neg: paddle.Tensor = 2.0 * paddle.ones_like(x=sin_theta).to(quaternion
-        .place)
-    k: paddle.Tensor = paddle.where(condition=sin_squared_theta > 0.0, x=
-        k_pos, y=k_neg)
-    angle_axis: paddle.Tensor = paddle.zeros_like(x=quaternion).to(quaternion
-        .place)[(...), :3]
+    k_neg: paddle.Tensor = 2.0 * paddle.to_tensor(
+        paddle.ones_like(x=sin_theta), place=quaternion.place
+    )
+    k: paddle.Tensor = paddle.where(condition=sin_squared_theta > 0.0, x=k_pos, y=k_neg)
+    angle_axis: paddle.Tensor = paddle.to_tensor(
+        paddle.zeros_like(x=quaternion), place=quaternion.place
+    )[(...), :3]
     angle_axis[..., 0] += q1 * k
     angle_axis[..., 1] += q2 * k
     angle_axis[..., 2] += q3 * k
@@ -281,8 +352,10 @@ def batch_euler2matrix(r):
 
 
 def batch_matrix2euler(rot_mats):
-    sy = paddle.sqrt(x=rot_mats[:, (0), (0)] * rot_mats[:, (0), (0)] + 
-        rot_mats[:, (1), (0)] * rot_mats[:, (1), (0)])
+    sy = paddle.sqrt(
+        x=rot_mats[:, (0), (0)] * rot_mats[:, (0), (0)]
+        + rot_mats[:, (1), (0)] * rot_mats[:, (1), (0)]
+    )
     return paddle.atan2(x=-rot_mats[:, (2), (0)], y=sy)
 
 
@@ -304,7 +377,7 @@ def batch_axis2euler(r):
 
 def batch_orth_proj(X, camera):
     """
-        X is N x num_pquaternion_to_angle_axisoints x 3
+    X is N x num_pquaternion_to_angle_axisoints x 3
     """
     camera = camera.clone().reshape([-1, 1, 3])
     X_trans = X[:, :, :2] + camera[:, :, 1:]
@@ -313,8 +386,8 @@ def batch_orth_proj(X, camera):
     return Xn
 
 
-def batch_rodrigues(rot_vecs, epsilon=1e-08, dtype='float32'):
-    """  same as batch_matrix2axis
+def batch_rodrigues(rot_vecs, epsilon=1e-08, dtype="float32"):
+    """same as batch_matrix2axis
     Calculates the rotation matrices for a batch of rotation vectors
         Parameters
         ----------
@@ -331,12 +404,14 @@ def batch_rodrigues(rot_vecs, epsilon=1e-08, dtype='float32'):
     rot_dir = rot_vecs / angle
     cos = paddle.unsqueeze(x=paddle.cos(x=angle), axis=1)
     sin = paddle.unsqueeze(x=paddle.sin(x=angle), axis=1)
-    rx, ry, rz = paddle.split(x=rot_dir, num_or_sections=rot_dir.shape[1] //
-        1, axis=1)
+    rx, ry, rz = paddle_add.split(
+        x=rot_dir, num_or_sections=rot_dir.shape[1] // 1, axis=1
+    )
     K = paddle.zeros(shape=(batch_size, 3, 3), dtype=dtype)
     zeros = paddle.zeros(shape=(batch_size, 1), dtype=dtype)
-    K = paddle.concat(x=[zeros, -rz, ry, rz, zeros, -rx, -ry, rx, zeros],
-        axis=1).reshape((batch_size, 3, 3))
+    K = paddle.concat(
+        x=[zeros, -rz, ry, rz, zeros, -rx, -ry, rx, zeros], axis=1
+    ).reshape((batch_size, 3, 3))
     ident = paddle.eye(num_rows=3).astype(dtype).unsqueeze(axis=0)
     rot_mat = ident + sin * K + (1 - cos) * paddle.bmm(x=K, y=K)
     return rot_mat

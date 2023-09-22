@@ -1,7 +1,19 @@
-import sys
-sys.path.append('/nfs/github/recurrent/out/utils')
-import paddle_aux
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import paddle
+
 """
 Various utilities for neural networks.
 """
@@ -9,15 +21,13 @@ import math
 
 
 class SiLU(paddle.nn.Layer):
-
     def forward(self, x):
         return x * paddle.nn.functional.sigmoid(x=x)
 
 
 class GroupNorm32(paddle.nn.GroupNorm):
-
     def forward(self, x):
-        return super().forward(x.astype(dtype='float32')).astype(x.dtype)
+        return super().forward(x.astype(dtype="float32")).astype(x.dtype)
 
 
 def conv_nd(dims, *args, **kwargs):
@@ -25,19 +35,19 @@ def conv_nd(dims, *args, **kwargs):
     Create a 1D, 2D, or 3D convolution module.
     """
     if dims == 1:
->>>        return torch.nn.Conv1d(*args, **kwargs)
+        return paddle.nn.Conv1D(*args, **kwargs)
     elif dims == 2:
->>>        return torch.nn.Conv2d(*args, **kwargs)
+        return paddle.nn.Conv2D(*args, **kwargs)
     elif dims == 3:
->>>        return torch.nn.Conv3d(*args, **kwargs)
-    raise ValueError(f'unsupported dimensions: {dims}')
+        return paddle.nn.Conv3D(*args, **kwargs)
+    raise ValueError(f"unsupported dimensions: {dims}")
 
 
 def linear(*args, **kwargs):
     """
     Create a linear module.
     """
->>>    return torch.nn.Linear(*args, **kwargs)
+    return paddle.nn.Linear(*args, **kwargs)
 
 
 def avg_pool_nd(dims, *args, **kwargs):
@@ -45,12 +55,12 @@ def avg_pool_nd(dims, *args, **kwargs):
     Create a 1D, 2D, or 3D average pooling module.
     """
     if dims == 1:
->>>        return torch.nn.AvgPool1d(*args, **kwargs)
+        return paddle.nn.AvgPool1D(*args, **kwargs)
     elif dims == 2:
->>>        return torch.nn.AvgPool2d(*args, **kwargs)
+        return paddle.nn.AvgPool2D(*args, **kwargs)
     elif dims == 3:
->>>        return torch.nn.AvgPool3d(*args, **kwargs)
-    raise ValueError(f'unsupported dimensions: {dims}')
+        return paddle.nn.AvgPool3D(*args, **kwargs)
+    raise ValueError(f"unsupported dimensions: {dims}")
 
 
 def zero_module(module):
@@ -99,14 +109,20 @@ def timestep_embedding(timesteps, dim, max_period=10000):
     :return: an [N x dim] Tensor of positional embeddings.
     """
     half = dim // 2
-    freqs = paddle.exp(x=-math.log(max_period) * paddle.arange(start=0, end
-        =half).astype('float32') / half).to(device=timesteps.place)
-    args = timesteps[:, (None)].astype(dtype='float32') * freqs[None]
-    embedding = paddle.concat(x=[paddle.cos(x=args), paddle.sin(x=args)],
-        axis=-1)
+    freqs = paddle.to_tensor(
+        paddle.exp(
+            x=-math.log(max_period)
+            * paddle.arange(start=0, end=half).astype("float32")
+            / half
+        ),
+        place=timesteps.place,
+    )
+    args = timesteps[:, (None)].astype(dtype="float32") * freqs[None]
+    embedding = paddle.concat(x=[paddle.cos(x=args), paddle.sin(x=args)], axis=-1)
     if dim % 2:
-        embedding = paddle.concat(x=[embedding, paddle.zeros_like(x=
-            embedding[:, :1])], axis=-1)
+        embedding = paddle.concat(
+            x=[embedding, paddle.zeros_like(x=embedding[:, :1])], axis=-1
+        )
     return embedding
 
 
@@ -129,7 +145,6 @@ def checkpoint(func, inputs, params, flag):
 
 
 class CheckpointFunction(paddle.autograd.PyLayer):
-
     @staticmethod
     def forward(ctx, run_function, length, *args):
         ctx.run_function = run_function
@@ -147,9 +162,12 @@ class CheckpointFunction(paddle.autograd.PyLayer):
         with paddle.enable_grad():
             shallow_copies = [x.reshape(x.shape) for x in ctx.input_tensors]
             output_tensors = ctx.run_function(*shallow_copies)
-        input_grads = paddle.grad(outputs=output_tensors, inputs=ctx.
-            input_tensors + ctx.input_params, grad_outputs=output_grads,
-            allow_unused=True)
+        input_grads = paddle.grad(
+            outputs=output_tensors,
+            inputs=ctx.input_tensors + ctx.input_params,
+            grad_outputs=output_grads,
+            allow_unused=True,
+        )
         del ctx.input_tensors
         del ctx.input_params
         del output_tensors

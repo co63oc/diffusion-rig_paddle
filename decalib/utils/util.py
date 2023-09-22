@@ -1,63 +1,94 @@
-import sys
-sys.path.append('/nfs/github/recurrent/out/utils')
-import paddle_aux
-import paddle
-import numpy as np
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import math
-from collections import OrderedDict
 import os
+from collections import OrderedDict
+
+import cv2
+import numpy as np
+import paddle
 from scipy.ndimage import morphology
 from skimage.io import imsave
-import cv2
 
 
-def upsample_mesh(vertices, normals, faces, displacement_map, texture_map,
-    dense_template):
-    """ Credit to Timo
+def upsample_mesh(
+    vertices, normals, faces, displacement_map, texture_map, dense_template
+):
+    """Credit to Timo
     upsampling coarse mesh (with displacment map)
         vertices: vertices of coarse mesh, [nv, 3]
         normals: vertex normals, [nv, 3]
         faces: faces of coarse mesh, [nf, 3]
         texture_map: texture map, [256, 256, 3]
         displacement_map: displacment map, [256, 256]
-        dense_template: 
-    Returns: 
+        dense_template:
+    Returns:
         dense_vertices: upsampled vertices with details, [number of dense vertices, 3]
         dense_colors: vertex color, [number of dense vertices, 3]
         dense_faces: [number of dense faces, 3]
     """
-    img_size = dense_template['img_size']
-    dense_faces = dense_template['f']
-    x_coords = dense_template['x_coords']
-    y_coords = dense_template['y_coords']
-    valid_pixel_ids = dense_template['valid_pixel_ids']
-    valid_pixel_3d_faces = dense_template['valid_pixel_3d_faces']
-    valid_pixel_b_coords = dense_template['valid_pixel_b_coords']
-    pixel_3d_points = vertices[(valid_pixel_3d_faces[:, (0)]), :
-        ] * valid_pixel_b_coords[:, (0)][:, (np.newaxis)] + vertices[(
-        valid_pixel_3d_faces[:, (1)]), :] * valid_pixel_b_coords[:, (1)][:,
-        (np.newaxis)] + vertices[(valid_pixel_3d_faces[:, (2)]), :
-        ] * valid_pixel_b_coords[:, (2)][:, (np.newaxis)]
+    img_size = dense_template["img_size"]
+    dense_faces = dense_template["f"]
+    x_coords = dense_template["x_coords"]
+    y_coords = dense_template["y_coords"]
+    valid_pixel_ids = dense_template["valid_pixel_ids"]
+    valid_pixel_3d_faces = dense_template["valid_pixel_3d_faces"]
+    valid_pixel_b_coords = dense_template["valid_pixel_b_coords"]
+    pixel_3d_points = (
+        vertices[(valid_pixel_3d_faces[:, (0)]), :]
+        * valid_pixel_b_coords[:, (0)][:, (np.newaxis)]
+        + vertices[(valid_pixel_3d_faces[:, (1)]), :]
+        * valid_pixel_b_coords[:, (1)][:, (np.newaxis)]
+        + vertices[(valid_pixel_3d_faces[:, (2)]), :]
+        * valid_pixel_b_coords[:, (2)][:, (np.newaxis)]
+    )
     vertex_normals = normals
-    pixel_3d_normals = vertex_normals[(valid_pixel_3d_faces[:, (0)]), :
-        ] * valid_pixel_b_coords[:, (0)][:, (np.newaxis)] + vertex_normals[(
-        valid_pixel_3d_faces[:, (1)]), :] * valid_pixel_b_coords[:, (1)][:,
-        (np.newaxis)] + vertex_normals[(valid_pixel_3d_faces[:, (2)]), :
-        ] * valid_pixel_b_coords[:, (2)][:, (np.newaxis)]
-    pixel_3d_normals = pixel_3d_normals / np.linalg.norm(pixel_3d_normals,
-        axis=-1)[:, (np.newaxis)]
-    displacements = displacement_map[y_coords[valid_pixel_ids].astype(int),
-        x_coords[valid_pixel_ids].astype(int)]
-    dense_colors = texture_map[y_coords[valid_pixel_ids].astype(int),
-        x_coords[valid_pixel_ids].astype(int)]
-    offsets = np.einsum('i,ij->ij', displacements, pixel_3d_normals)
+    pixel_3d_normals = (
+        vertex_normals[(valid_pixel_3d_faces[:, (0)]), :]
+        * valid_pixel_b_coords[:, (0)][:, (np.newaxis)]
+        + vertex_normals[(valid_pixel_3d_faces[:, (1)]), :]
+        * valid_pixel_b_coords[:, (1)][:, (np.newaxis)]
+        + vertex_normals[(valid_pixel_3d_faces[:, (2)]), :]
+        * valid_pixel_b_coords[:, (2)][:, (np.newaxis)]
+    )
+    pixel_3d_normals = (
+        pixel_3d_normals / np.linalg.norm(pixel_3d_normals, axis=-1)[:, (np.newaxis)]
+    )
+    displacements = displacement_map[
+        y_coords[valid_pixel_ids].astype(int), x_coords[valid_pixel_ids].astype(int)
+    ]
+    dense_colors = texture_map[
+        y_coords[valid_pixel_ids].astype(int), x_coords[valid_pixel_ids].astype(int)
+    ]
+    offsets = np.einsum("i,ij->ij", displacements, pixel_3d_normals)
     dense_vertices = pixel_3d_points + offsets
     return dense_vertices, dense_colors, dense_faces
 
 
-def write_obj(obj_name, vertices, faces, colors=None, texture=None,
-    uvcoords=None, uvfaces=None, inverse_face_order=False, normal_map=None):
-    """ Save 3D face model with texture. 
+def write_obj(
+    obj_name,
+    vertices,
+    faces,
+    colors=None,
+    texture=None,
+    uvcoords=None,
+    uvfaces=None,
+    inverse_face_order=False,
+    normal_map=None,
+):
+    """Save 3D face model with texture.
     Ref: https://github.com/patrikhuber/eos/blob/bd00155ebae4b1a13b08bf5a991694d682abbada/include/eos/core/Mesh.hpp
     Args:
         obj_name: str
@@ -67,92 +98,108 @@ def write_obj(obj_name, vertices, faces, colors=None, texture=None,
         texture: shape = (uv_size, uv_size, 3)
         uvcoords: shape = (nver, 2) max value<=1
     """
-    if os.path.splitext(obj_name)[-1] != '.obj':
-        obj_name = obj_name + '.obj'
-    mtl_name = obj_name.replace('.obj', '.mtl')
-    texture_name = obj_name.replace('.obj', '.png')
-    material_name = 'FaceTexture'
+    if os.path.splitext(obj_name)[-1] != ".obj":
+        obj_name = obj_name + ".obj"
+    mtl_name = obj_name.replace(".obj", ".mtl")
+    texture_name = obj_name.replace(".obj", ".png")
+    material_name = "FaceTexture"
     faces = faces.copy()
     faces += 1
     if inverse_face_order:
         faces = faces[:, ([2, 1, 0])]
         if uvfaces is not None:
             uvfaces = uvfaces[:, ([2, 1, 0])]
-    with open(obj_name, 'w') as f:
+    with open(obj_name, "w") as f:
         if texture is not None:
-            f.write('mtllib %s\n\n' % os.path.basename(mtl_name))
+            f.write("mtllib %s\n\n" % os.path.basename(mtl_name))
         if colors is None:
             for i in range(vertices.shape[0]):
-                f.write('v {} {} {}\n'.format(vertices[i, 0], vertices[i, 1
-                    ], vertices[i, 2]))
+                f.write(
+                    "v {} {} {}\n".format(
+                        vertices[i, 0], vertices[i, 1], vertices[i, 2]
+                    )
+                )
         else:
             for i in range(vertices.shape[0]):
-                f.write('v {} {} {} {} {} {}\n'.format(vertices[i, 0],
-                    vertices[i, 1], vertices[i, 2], colors[i, 0], colors[i,
-                    1], colors[i, 2]))
+                f.write(
+                    "v {} {} {} {} {} {}\n".format(
+                        vertices[i, 0],
+                        vertices[i, 1],
+                        vertices[i, 2],
+                        colors[i, 0],
+                        colors[i, 1],
+                        colors[i, 2],
+                    )
+                )
         if texture is None:
             for i in range(faces.shape[0]):
-                f.write('f {} {} {}\n'.format(faces[i, 2], faces[i, 1],
-                    faces[i, 0]))
+                f.write("f {} {} {}\n".format(faces[i, 2], faces[i, 1], faces[i, 0]))
         else:
             for i in range(uvcoords.shape[0]):
-                f.write('vt {} {}\n'.format(uvcoords[i, 0], uvcoords[i, 1]))
-            f.write('usemtl %s\n' % material_name)
+                f.write("vt {} {}\n".format(uvcoords[i, 0], uvcoords[i, 1]))
+            f.write("usemtl %s\n" % material_name)
             uvfaces = uvfaces + 1
             for i in range(faces.shape[0]):
-                f.write('f {}/{} {}/{} {}/{}\n'.format(faces[i, 0], uvfaces
-                    [i, 0], faces[i, 1], uvfaces[i, 1], faces[i, 2],
-                    uvfaces[i, 2]))
-            with open(mtl_name, 'w') as f:
-                f.write('newmtl %s\n' % material_name)
-                s = 'map_Kd {}\n'.format(os.path.basename(texture_name))
+                f.write(
+                    "f {}/{} {}/{} {}/{}\n".format(
+                        faces[i, 0],
+                        uvfaces[i, 0],
+                        faces[i, 1],
+                        uvfaces[i, 1],
+                        faces[i, 2],
+                        uvfaces[i, 2],
+                    )
+                )
+            with open(mtl_name, "w") as f:
+                f.write("newmtl %s\n" % material_name)
+                s = "map_Kd {}\n".format(os.path.basename(texture_name))
                 f.write(s)
                 if normal_map is not None:
                     name, _ = os.path.splitext(obj_name)
-                    normal_name = f'{name}_normals.png'
-                    f.write(f'disp {normal_name}')
+                    normal_name = f"{name}_normals.png"
+                    f.write(f"disp {normal_name}")
                     cv2.imwrite(normal_name, normal_map)
             cv2.imwrite(texture_name, texture)
 
 
 def load_obj(obj_filename):
-    """ Ref: https://github.com/facebookresearch/pytorch3d/blob/25c065e9dafa90163e7cec873dbb324a637c68b7/pytorch3d/io/obj_io.py
+    """Ref: https://github.com/facebookresearch/pytorch3d/blob/25c065e9dafa90163e7cec873dbb324a637c68b7/pytorch3d/io/obj_io.py
     Load a mesh from a file-like object.
     """
-    with open(obj_filename, 'r') as f:
+    with open(obj_filename, "r") as f:
         lines = [line.strip() for line in f]
     verts, uvcoords = [], []
     faces, uv_faces = [], []
     if lines and isinstance(lines[0], bytes):
-        lines = [el.decode('utf-8') for el in lines]
+        lines = [el.decode("utf-8") for el in lines]
     for line in lines:
         tokens = line.strip().split()
-        if line.startswith('v '):
+        if line.startswith("v "):
             vert = [float(x) for x in tokens[1:4]]
             if len(vert) != 3:
-                msg = 'Vertex %s does not have 3 values. Line: %s'
+                msg = "Vertex %s does not have 3 values. Line: %s"
                 raise ValueError(msg % (str(vert), str(line)))
             verts.append(vert)
-        elif line.startswith('vt '):
+        elif line.startswith("vt "):
             tx = [float(x) for x in tokens[1:3]]
             if len(tx) != 2:
                 raise ValueError(
-                    'Texture %s does not have 2 values. Line: %s' % (str(tx
-                    ), str(line)))
+                    "Texture %s does not have 2 values. Line: %s" % (str(tx), str(line))
+                )
             uvcoords.append(tx)
-        elif line.startswith('f '):
+        elif line.startswith("f "):
             face = tokens[1:]
-            face_list = [f.split('/') for f in face]
+            face_list = [f.split("/") for f in face]
             for vert_props in face_list:
                 faces.append(int(vert_props[0]))
                 if len(vert_props) > 1:
-                    if vert_props[1] != '':
+                    if vert_props[1] != "":
                         uv_faces.append(int(vert_props[1]))
-    verts = paddle.to_tensor(data=verts, dtype='float32')
-    uvcoords = paddle.to_tensor(data=uvcoords, dtype='float32')
-    faces = paddle.to_tensor(data=faces, dtype='int64')
+    verts = paddle.to_tensor(data=verts, dtype="float32")
+    uvcoords = paddle.to_tensor(data=uvcoords, dtype="float32")
+    faces = paddle.to_tensor(data=faces, dtype="int64")
     faces = faces.reshape((-1, 3)) - 1
-    uv_faces = paddle.to_tensor(data=uv_faces, dtype='int64')
+    uv_faces = paddle.to_tensor(data=uv_faces, dtype="int64")
     uv_faces = uv_faces.reshape((-1, 3)) - 1
     return verts, uvcoords, faces, uv_faces
 
@@ -171,7 +218,7 @@ def generate_triangles(h, w, margin_x=2, margin_y=5, mask=None):
 
 
 def face_vertices(vertices, faces):
-    """ 
+    """
     :param vertices: [batch size, number of vertices, 3]
     :param faces: [batch size, number of faces, 3]
     :return: [batch size, number of faces, 3, 3]
@@ -184,10 +231,12 @@ def face_vertices(vertices, faces):
     bs, nv = vertices.shape[:2]
     bs, nf = faces.shape[:2]
     device = vertices.place
-    faces = faces + (paddle.arange(end=bs).astype('int32').to(device) * nv)[:,
-        (None), (None)]
+    faces = (
+        faces
+        + (paddle.arange(end=bs).astype("int32").to(device) * nv)[:, (None), (None)]
+    )
     vertices = vertices.reshape((bs * nv, 3))
-    return vertices[faces.astype(dtype='int64')]
+    return vertices[faces.astype(dtype="int64")]
 
 
 def vertex_normals(vertices, faces):
@@ -205,36 +254,55 @@ def vertex_normals(vertices, faces):
     bs, nf = faces.shape[:2]
     device = vertices.place
     normals = paddle.zeros(shape=[bs * nv, 3]).to(device)
-    faces = faces + (paddle.arange(end=bs).astype('int32').to(device) * nv)[:,
-        (None), (None)]
-    vertices_faces = vertices.reshape((bs * nv, 3))[faces.astype(dtype='int64')
-        ]
+    faces = (
+        faces
+        + (paddle.arange(end=bs).astype("int32").to(device) * nv)[:, (None), (None)]
+    )
+    vertices_faces = vertices.reshape((bs * nv, 3))[faces.astype(dtype="int64")]
     faces = faces.reshape((-1, 3))
     vertices_faces = vertices_faces.reshape((-1, 3, 3))
-    paddle.index_add_(normals, index=faces[:, (1)].astype(dtype='int64'),
-        axis=0, value=1.0 * paddle.cross(x=vertices_faces[:, (2)] -
-        vertices_faces[:, (1)], y=vertices_faces[:, (0)] - vertices_faces[:,
-        (1)]))
-    paddle.index_add_(normals, index=faces[:, (2)].astype(dtype='int64'),
-        axis=0, value=1.0 * paddle.cross(x=vertices_faces[:, (0)] -
-        vertices_faces[:, (2)], y=vertices_faces[:, (1)] - vertices_faces[:,
-        (2)]))
-    paddle.index_add_(normals, index=faces[:, (0)].astype(dtype='int64'),
-        axis=0, value=1.0 * paddle.cross(x=vertices_faces[:, (1)] -
-        vertices_faces[:, (0)], y=vertices_faces[:, (2)] - vertices_faces[:,
-        (0)]))
+    paddle.index_add_(
+        normals,
+        index=faces[:, (1)].astype(dtype="int64"),
+        axis=0,
+        value=1.0
+        * paddle.cross(
+            x=vertices_faces[:, (2)] - vertices_faces[:, (1)],
+            y=vertices_faces[:, (0)] - vertices_faces[:, (1)],
+        ),
+    )
+    paddle.index_add_(
+        normals,
+        index=faces[:, (2)].astype(dtype="int64"),
+        axis=0,
+        value=1.0
+        * paddle.cross(
+            x=vertices_faces[:, (0)] - vertices_faces[:, (2)],
+            y=vertices_faces[:, (1)] - vertices_faces[:, (2)],
+        ),
+    )
+    paddle.index_add_(
+        normals,
+        index=faces[:, (0)].astype(dtype="int64"),
+        axis=0,
+        value=1.0
+        * paddle.cross(
+            x=vertices_faces[:, (1)] - vertices_faces[:, (0)],
+            y=vertices_faces[:, (2)] - vertices_faces[:, (0)],
+        ),
+    )
     normals = paddle.nn.functional.normalize(x=normals, epsilon=1e-06, axis=1)
     normals = normals.reshape((bs, nv, 3))
     return normals
 
 
 def batch_orth_proj(X, camera):
-    """ orthgraphic projection
-        X:  3d vertices, [bz, n_point, 3]
-        camera: scale and translation, [bz, 3], [scale, tx, ty]
+    """orthgraphic projection
+    X:  3d vertices, [bz, n_point, 3]
+    camera: scale and translation, [bz, 3], [scale, tx, ty]
     """
     """Class Method: *.view, can not convert, please check whether it is torch.Tensor.*/Optimizer.*/nn.Module.*/torch.distributions.Distribution.*/torch.autograd.function.FunctionCtx.*/torch.profiler.profile.*/torch.autograd.profiler.profile.*, and convert manually"""
->>>    camera = camera.clone().view(-1, 1, 3)
+    camera = camera.clone().reshape([-1, 1, 3])
     X_trans = X[:, :, :2] + camera[:, :, 1:]
     X_trans = paddle.concat(x=[X_trans, X[:, :, 2:]], axis=2)
     shape = X_trans.shape
@@ -243,11 +311,15 @@ def batch_orth_proj(X, camera):
 
 
 def gaussian(window_size, sigma):
-
     def gauss_fcn(x):
-        return -(x - window_size // 2) ** 2 / float(2 * sigma ** 2)
-    gauss = paddle.stack(x=[paddle.exp(x=paddle.to_tensor(data=gauss_fcn(x)
-        )) for x in range(window_size)])
+        return -((x - window_size // 2) ** 2) / float(2 * sigma**2)
+
+    gauss = paddle.stack(
+        x=[
+            paddle.exp(x=paddle.to_tensor(data=gauss_fcn(x)))
+            for x in range(window_size)
+        ]
+    )
     return gauss / gauss.sum()
 
 
@@ -272,10 +344,10 @@ def get_gaussian_kernel(kernel_size: int, sigma: float):
         >>> kornia.image.get_gaussian_kernel(5, 1.5)
         tensor([0.1201, 0.2339, 0.2921, 0.2339, 0.1201])
     """
-    if not isinstance(kernel_size, int
-        ) or kernel_size % 2 == 0 or kernel_size <= 0:
-        raise TypeError('kernel_size must be an odd positive integer. Got {}'
-            .format(kernel_size))
+    if not isinstance(kernel_size, int) or kernel_size % 2 == 0 or kernel_size <= 0:
+        raise TypeError(
+            "kernel_size must be an odd positive integer. Got {}".format(kernel_size)
+        )
     window_1d = gaussian(kernel_size, sigma)
     return window_1d
 
@@ -308,17 +380,18 @@ def get_gaussian_kernel2d(kernel_size, sigma):
                 [0.0370, 0.0720, 0.0899, 0.0720, 0.0370]])
     """
     if not isinstance(kernel_size, tuple) or len(kernel_size) != 2:
-        raise TypeError('kernel_size must be a tuple of length two. Got {}'
-            .format(kernel_size))
+        raise TypeError(
+            "kernel_size must be a tuple of length two. Got {}".format(kernel_size)
+        )
     if not isinstance(sigma, tuple) or len(sigma) != 2:
-        raise TypeError('sigma must be a tuple of length two. Got {}'.
-            format(sigma))
+        raise TypeError("sigma must be a tuple of length two. Got {}".format(sigma))
     ksize_x, ksize_y = kernel_size
     sigma_x, sigma_y = sigma
     kernel_x = get_gaussian_kernel(ksize_x, sigma_x)
     kernel_y = get_gaussian_kernel(ksize_y, sigma_y)
-    kernel_2d = paddle.matmul(x=kernel_x.unsqueeze(axis=-1), y=kernel_y.
-        unsqueeze(axis=-1).t())
+    kernel_2d = paddle.matmul(
+        x=kernel_x.unsqueeze(axis=-1), y=kernel_y.unsqueeze(axis=-1).t()
+    )
     return kernel_2d
 
 
@@ -327,8 +400,9 @@ def gaussian_blur(x, kernel_size=(3, 3), sigma=(0.8, 0.8)):
     kernel = get_gaussian_kernel2d(kernel_size, sigma).to(x.place).to(x.dtype)
     kernel = kernel.tile(repeat_times=[c, 1, 1, 1])
     padding = [((k - 1) // 2) for k in kernel_size]
-    return paddle.nn.functional.conv2d(x=x, weight=kernel, padding=padding,
-        stride=1, groups=c)
+    return paddle.nn.functional.conv2d(
+        x=x, weight=kernel, padding=padding, stride=1, groups=c
+    )
 
 
 def _compute_binary_kernel(window_size):
@@ -339,8 +413,7 @@ def _compute_binary_kernel(window_size):
     kernel: paddle.Tensor = paddle.zeros(shape=[window_range, window_range])
     for i in range(window_range):
         kernel[i, i] += 1.0
-    """Class Method: *.view, can not convert, please check whether it is torch.Tensor.*/Optimizer.*/nn.Module.*/torch.distributions.Distribution.*/torch.autograd.function.FunctionCtx.*/torch.profiler.profile.*/torch.autograd.profiler.profile.*, and convert manually"""
->>>    return kernel.view(window_range, 1, window_size[0], window_size[1])
+    return kernel.reshape([window_range, 1, window_size[0], window_size[1]])
 
 
 def median_blur(x, kernel_size=(3, 3)):
@@ -348,11 +421,11 @@ def median_blur(x, kernel_size=(3, 3)):
     kernel = _compute_binary_kernel(kernel_size).to(x.place).to(x.dtype)
     kernel = kernel.tile(repeat_times=[c, 1, 1, 1])
     padding = [((k - 1) // 2) for k in kernel_size]
-    features = paddle.nn.functional.conv2d(x=x, weight=kernel, padding=
-        padding, stride=1, groups=c)
-    """Class Method: *.view, can not convert, please check whether it is torch.Tensor.*/Optimizer.*/nn.Module.*/torch.distributions.Distribution.*/torch.autograd.function.FunctionCtx.*/torch.profiler.profile.*/torch.autograd.profiler.profile.*, and convert manually"""
->>>    features = features.view(b, c, -1, h, w)
->>>    median = torch.median(features, dim=2)[0]
+    features = paddle.nn.functional.conv2d(
+        x=x, weight=kernel, padding=padding, stride=1, groups=c
+    )
+    features = features.reshape([b, c, -1, h, w])
+    median = paddle.median(features, axis=2)[0]
     return median
 
 
@@ -383,13 +456,13 @@ def get_laplacian_kernel2d(kernel_size: int):
                 [  1.,   1.,   1.,   1.,   1.]])
 
     """
-    if not isinstance(kernel_size, int
-        ) or kernel_size % 2 == 0 or kernel_size <= 0:
-        raise TypeError('ksize must be an odd positive integer. Got {}'.
-            format(kernel_size))
+    if not isinstance(kernel_size, int) or kernel_size % 2 == 0 or kernel_size <= 0:
+        raise TypeError(
+            "ksize must be an odd positive integer. Got {}".format(kernel_size)
+        )
     kernel = paddle.ones(shape=(kernel_size, kernel_size))
     mid = kernel_size // 2
-    kernel[mid, mid] = 1 - kernel_size ** 2
+    kernel[mid, mid] = 1 - kernel_size**2
     kernel_2d: paddle.Tensor = kernel
     return kernel_2d
 
@@ -400,17 +473,18 @@ def laplacian(x):
     kernel = get_laplacian_kernel2d(kernel_size).to(x.place).to(x.dtype)
     kernel = kernel.tile(repeat_times=[c, 1, 1, 1])
     padding = (kernel_size - 1) // 2
-    return paddle.nn.functional.conv2d(x=x, weight=kernel, padding=padding,
-        stride=1, groups=c)
+    return paddle.nn.functional.conv2d(
+        x=x, weight=kernel, padding=padding, stride=1, groups=c
+    )
 
 
 def angle2matrix(angles):
-    """ get rotation matrix from three rotation angles(degree). right-handed.
+    """get rotation matrix from three rotation angles(degree). right-handed.
     Args:
         angles: [batch_size, 3] tensor containing X, Y, and Z angles.
         x: pitch. positive for looking down.
-        y: yaw. positive for looking left. 
-        z: roll. positive for tilting head right. 
+        y: yaw. positive for looking left.
+        z: roll. positive for tilting head right.
     Returns:
         R: [batch_size, 3, 3]. rotation matrices.
     """
@@ -421,9 +495,20 @@ def angle2matrix(angles):
     sx, sy, sz = s[:, (0)], s[:, (1)], s[:, (2)]
     zeros = paddle.zeros_like(x=s[:, (0)]).to(angles.place)
     ones = paddle.ones_like(x=s[:, (0)]).to(angles.place)
-    R_flattened = paddle.stack(x=[cz * cy, cz * sy * sx - sz * cx, cz * sy *
-        cx + sz * sx, sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz *
-        sx, -sy, cy * sx, cy * cx], axis=0)
+    R_flattened = paddle.stack(
+        x=[
+            cz * cy,
+            cz * sy * sx - sz * cx,
+            cz * sy * cx + sz * sx,
+            sz * cy,
+            sz * sy * sx + cz * cx,
+            sz * sy * cx - cz * sx,
+            -sy,
+            cy * sx,
+            cy * cx,
+        ],
+        axis=0,
+    )
     R = paddle.reshape(x=R_flattened, shape=(-1, 3, 3))
     return R
 
@@ -440,12 +525,12 @@ def binary_erosion(tensor, kernel_size=5):
 
 def flip_image(src_image, kps):
     """
-        purpose:
-            flip a image given by src_image and the 2d keypoints
-        flip_mode: 
-            0: horizontal flip
-            >0: vertical flip
-            <0: horizontal & vertical flip
+    purpose:
+        flip a image given by src_image and the 2d keypoints
+    flip_mode:
+        0: horizontal flip
+        >0: vertical flip
+        <0: horizontal & vertical flip
     """
     h, w = src_image.shape[0], src_image.shape[1]
     src_image = cv2.flip(src_image, 1)
@@ -456,13 +541,13 @@ def flip_image(src_image, kps):
     return src_image, kps
 
 
-def copy_state_dict(cur_state_dict, pre_state_dict, prefix='', load_name=None):
-
+def copy_state_dict(cur_state_dict, pre_state_dict, prefix="", load_name=None):
     def _get_params(key):
         key = prefix + key
         if key in pre_state_dict:
             return pre_state_dict[key]
         return None
+
     for k in cur_state_dict.keys():
         if load_name is not None:
             if load_name not in k:
@@ -478,14 +563,14 @@ def copy_state_dict(cur_state_dict, pre_state_dict, prefix='', load_name=None):
 
 def check_mkdir(path):
     if not os.path.exists(path):
-        print('creating %s' % path)
+        print("creating %s" % path)
         os.makedirs(path)
 
 
 def check_mkdirlist(pathlist):
     for path in pathlist:
         if not os.path.exists(path):
-            print('creating %s' % path)
+            print("creating %s" % path)
             os.makedirs(path)
 
 
@@ -501,9 +586,9 @@ def dict2obj(d):
     if not isinstance(d, dict):
         return d
 
-
     class C(object):
         pass
+
     o = C()
     for k in d:
         o.__dict__[k] = dict2obj(d[k])
@@ -511,7 +596,6 @@ def dict2obj(d):
 
 
 class Struct(object):
-
     def __init__(self, **kwargs):
         for key, val in kwargs.items():
             setattr(self, key, val)
@@ -535,17 +619,17 @@ def dict_tensor2npy(tensor_dict):
 end_list = np.array([17, 22, 27, 42, 48, 31, 36, 68], dtype=np.int32) - 1
 
 
-def plot_kpts(image, kpts, color='r'):
-    """ Draw 68 key points
-    Args: 
+def plot_kpts(image, kpts, color="r"):
+    """Draw 68 key points
+    Args:
         image: the input image
         kpt: (68, 3).
     """
-    if color == 'r':
+    if color == "r":
         c = 255, 0, 0
-    elif color == 'g':
+    elif color == "g":
         c = 0, 255, 0
-    elif color == 'b':
+    elif color == "b":
         c = 255, 0, 0
     image = image.copy()
     kpts = kpts.copy()
@@ -560,26 +644,30 @@ def plot_kpts(image, kpts, color='r'):
         if i in end_list:
             continue
         ed = kpts[(i + 1), :2]
-        image = cv2.line(image, (int(st[0]), int(st[1])), (int(ed[0]), int(
-            ed[1])), (255, 255, 255), radius)
-        image = cv2.circle(image, (int(st[0]), int(st[1])), radius, c, 
-            radius * 2)
+        image = cv2.line(
+            image,
+            (int(st[0]), int(st[1])),
+            (int(ed[0]), int(ed[1])),
+            (255, 255, 255),
+            radius,
+        )
+        image = cv2.circle(image, (int(st[0]), int(st[1])), radius, c, radius * 2)
     return image
 
 
-def plot_verts(image, kpts, color='r'):
-    """ Draw 68 key points
-    Args: 
+def plot_verts(image, kpts, color="r"):
+    """Draw 68 key points
+    Args:
         image: the input image
         kpt: (68, 3).
     """
-    if color == 'r':
+    if color == "r":
         c = 255, 0, 0
-    elif color == 'g':
+    elif color == "g":
         c = 0, 255, 0
-    elif color == 'b':
+    elif color == "b":
         c = 0, 0, 255
-    elif color == 'y':
+    elif color == "y":
         c = 0, 255, 255
     image = image.copy()
     for i in range(kpts.shape[0]):
@@ -588,8 +676,7 @@ def plot_verts(image, kpts, color='r'):
     return image
 
 
-def tensor_vis_landmarks(images, landmarks, gt_landmarks=None, color='g',
-    isScale=True):
+def tensor_vis_landmarks(images, landmarks, gt_landmarks=None, color="g", isScale=True):
     vis_landmarks = []
     images = images.cpu().numpy()
     predicted_landmarks = landmarks.detach().cpu().numpy()
@@ -601,33 +688,41 @@ def tensor_vis_landmarks(images, landmarks, gt_landmarks=None, color='g',
         image = image * 255
         if isScale:
             predicted_landmark = predicted_landmarks[i]
-            predicted_landmark[..., 0] = predicted_landmark[..., 0
-                ] * image.shape[1] / 2 + image.shape[1] / 2
-            predicted_landmark[..., 1] = predicted_landmark[..., 1
-                ] * image.shape[0] / 2 + image.shape[0] / 2
+            predicted_landmark[..., 0] = (
+                predicted_landmark[..., 0] * image.shape[1] / 2 + image.shape[1] / 2
+            )
+            predicted_landmark[..., 1] = (
+                predicted_landmark[..., 1] * image.shape[0] / 2 + image.shape[0] / 2
+            )
         else:
             predicted_landmark = predicted_landmarks[i]
         if predicted_landmark.shape[0] == 68:
             image_landmarks = plot_kpts(image, predicted_landmark, color)
             if gt_landmarks is not None:
-                image_landmarks = plot_verts(image_landmarks, 
-                    gt_landmarks_np[i] * image.shape[0] / 2 + image.shape[0
-                    ] / 2, 'r')
+                image_landmarks = plot_verts(
+                    image_landmarks,
+                    gt_landmarks_np[i] * image.shape[0] / 2 + image.shape[0] / 2,
+                    "r",
+                )
         else:
             image_landmarks = plot_verts(image, predicted_landmark, color)
             if gt_landmarks is not None:
-                image_landmarks = plot_verts(image_landmarks, 
-                    gt_landmarks_np[i] * image.shape[0] / 2 + image.shape[0
-                    ] / 2, 'r')
+                image_landmarks = plot_verts(
+                    image_landmarks,
+                    gt_landmarks_np[i] * image.shape[0] / 2 + image.shape[0] / 2,
+                    "r",
+                )
         vis_landmarks.append(image_landmarks)
     vis_landmarks = np.stack(vis_landmarks)
-    vis_landmarks = paddle.to_tensor(data=vis_landmarks[:, :, :, ([2, 1, 0]
-        )].transpose(0, 3, 1, 2)) / 255.0
+    vis_landmarks = (
+        paddle.to_tensor(data=vis_landmarks[:, :, :, ([2, 1, 0])].transpose(0, 3, 1, 2))
+        / 255.0
+    )
     return vis_landmarks
 
 
-def load_local_mask(image_size=256, mode='bbx'):
-    if mode == 'bbx':
+def load_local_mask(image_size=256, mode="bbx"):
+    if mode == "bbx":
         face = np.array([400, 1648, 400, 1648])
         forehead = np.array([550, 1498, 430, 700 + 50])
         eye_nose = np.array([490, 1558, 700, 1050 + 50])
@@ -656,11 +751,9 @@ def visualize_grid(visdict, savepath=None, size=224, dim=1, return_gird=True):
         elif dim == 1:
             new_h = int(h * size / w)
             new_w = size
->>>        grids[key] = torchvision.utils.make_grid(paddle.nn.functional.
-            interpolate(x=visdict[key], size=[new_h, new_w]).detach().cpu())
+        grids[key] = paddle.to_tensor(0.0)  # TODO: not convert
     grid = paddle.concat(x=list(grids.values()), axis=dim)
-    grid_image = (grid.numpy().transpose(1, 2, 0).copy() * 255)[:, :, ([2, 
-        1, 0])]
+    grid_image = (grid.numpy().transpose(1, 2, 0).copy() * 255)[:, :, ([2, 1, 0])]
     grid_image = np.minimum(np.maximum(grid_image, 0), 255).astype(np.uint8)
     if savepath:
         cv2.imwrite(savepath, grid_image)

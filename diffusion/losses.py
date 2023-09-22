@@ -1,7 +1,19 @@
-import sys
-sys.path.append('/nfs/github/recurrent/out/utils')
-import paddle_aux
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import paddle
+
 """
 Helpers for various likelihood-based losses. These are ported from the original
 Ho et al. diffusion models codebase:
@@ -22,11 +34,22 @@ def normal_kl(mean1, logvar1, mean2, logvar2):
         if isinstance(obj, paddle.Tensor):
             tensor = obj
             break
-    assert tensor is not None, 'at least one argument must be a Tensor'
-    logvar1, logvar2 = [(x if isinstance(x, paddle.Tensor) else paddle.
-        to_tensor(data=x).to(tensor)) for x in (logvar1, logvar2)]
-    return 0.5 * (-1.0 + logvar2 - logvar1 + paddle.exp(x=logvar1 - logvar2
-        ) + (mean1 - mean2) ** 2 * paddle.exp(x=-logvar2))
+    assert tensor is not None, "at least one argument must be a Tensor"
+    logvar1, logvar2 = [
+        (
+            x
+            if isinstance(x, paddle.Tensor)
+            else paddle.to_tensor(data=x, dtype=tensor.dtype, place=tensor.place)
+        )
+        for x in (logvar1, logvar2)
+    ]
+    return 0.5 * (
+        -1.0
+        + logvar2
+        - logvar1
+        + paddle.exp(x=logvar1 - logvar2)
+        + (mean1 - mean2) ** 2 * paddle.exp(x=-logvar2)
+    )
 
 
 def approx_standard_normal_cdf(x):
@@ -34,8 +57,10 @@ def approx_standard_normal_cdf(x):
     A fast approximation of the cumulative distribution function of the
     standard normal.
     """
-    return 0.5 * (1.0 + paddle.tanh(x=np.sqrt(2.0 / np.pi) * (x + 0.044715 *
-        paddle.pow(x=x, y=3))))
+    return 0.5 * (
+        1.0
+        + paddle.tanh(x=np.sqrt(2.0 / np.pi) * (x + 0.044715 * paddle.pow(x=x, y=3)))
+    )
 
 
 def discretized_gaussian_log_likelihood(x, *, means, log_scales):
@@ -59,8 +84,14 @@ def discretized_gaussian_log_likelihood(x, *, means, log_scales):
     log_cdf_plus = paddle.log(x=cdf_plus.clip(min=1e-12))
     log_one_minus_cdf_min = paddle.log(x=(1.0 - cdf_min).clip(min=1e-12))
     cdf_delta = cdf_plus - cdf_min
-    log_probs = paddle.where(condition=x < -0.999, x=log_cdf_plus, y=paddle
-        .where(condition=x > 0.999, x=log_one_minus_cdf_min, y=paddle.log(x
-        =cdf_delta.clip(min=1e-12))))
+    log_probs = paddle.where(
+        condition=x < -0.999,
+        x=log_cdf_plus,
+        y=paddle.where(
+            condition=x > 0.999,
+            x=log_one_minus_cdf_min,
+            y=paddle.log(x=cdf_delta.clip(min=1e-12)),
+        ),
+    )
     assert log_probs.shape == x.shape
     return log_probs

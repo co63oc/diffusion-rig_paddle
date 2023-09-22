@@ -1,18 +1,33 @@
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Logger copied from OpenAI baselines to avoid extra RL-based dependencies:
 https://github.com/openai/baselines/blob/ea25b9e8b234e6ee1bca43083f8f3cf974143998/baselines/logger.py
 """
-import os
-import sys
-import shutil
-import os.path as osp
-import json
-import time
 import datetime
+import json
+import os
+import os.path as osp
+import paddle
+import sys
 import tempfile
+import time
 import warnings
 from collections import defaultdict
 from contextlib import contextmanager
+
 DEBUG = 10
 INFO = 20
 WARN = 30
@@ -21,63 +36,63 @@ DISABLED = 50
 
 
 class KVWriter(object):
-
     def writekvs(self, kvs):
         raise NotImplementedError
 
 
 class SeqWriter(object):
-
     def writeseq(self, seq):
         raise NotImplementedError
 
 
 class HumanOutputFormat(KVWriter, SeqWriter):
-
     def __init__(self, filename_or_file):
         if isinstance(filename_or_file, str):
-            self.file = open(filename_or_file, 'wt')
+            self.file = open(filename_or_file, "wt")
             self.own_file = True
         else:
-            assert hasattr(filename_or_file, 'read'
-                ), 'expected file or str, got %s' % filename_or_file
+            assert hasattr(filename_or_file, "read"), (
+                "expected file or str, got %s" % filename_or_file
+            )
             self.file = filename_or_file
             self.own_file = False
 
     def writekvs(self, kvs):
         key2str = {}
         for key, val in sorted(kvs.items()):
-            if hasattr(val, '__float__'):
-                valstr = '%-8.3g' % val
+            if hasattr(val, "__float__"):
+                valstr = "%-8.3g" % val
             else:
                 valstr = str(val)
             key2str[self._truncate(key)] = self._truncate(valstr)
         if len(key2str) == 0:
-            print('WARNING: tried to write empty key-value dict')
+            print("WARNING: tried to write empty key-value dict")
             return
         else:
             keywidth = max(map(len, key2str.keys()))
             valwidth = max(map(len, key2str.values()))
-        dashes = '-' * (keywidth + valwidth + 7)
+        dashes = "-" * (keywidth + valwidth + 7)
         lines = [dashes]
         for key, val in sorted(key2str.items(), key=lambda kv: kv[0].lower()):
-            lines.append('| %s%s | %s%s |' % (key, ' ' * (keywidth - len(
-                key)), val, ' ' * (valwidth - len(val))))
+            lines.append(
+                "| %s%s | %s%s |"
+                % (key, " " * (keywidth - len(key)), val, " " * (valwidth - len(val)))
+            )
         lines.append(dashes)
-        self.file.write('\n'.join(lines) + '\n')
+        self.file.write("\n".join(lines) + "\n")
         self.file.flush()
 
     def _truncate(self, s):
         maxlen = 30
-        return s[:maxlen - 3] + '...' if len(s) > maxlen else s
+        return s[: maxlen - 3] + "..." if len(s) > maxlen else s
 
     def writeseq(self, seq):
         seq = list(seq)
         for i, elem in enumerate(seq):
             self.file.write(elem)
             if i < len(seq) - 1:
-                self.file.write(' ')
-        self.file.write('\n')
+                self.file.write(" ")
+        self.file.write("\n")
         self.file.flush()
 
     def close(self):
@@ -86,15 +101,14 @@ class HumanOutputFormat(KVWriter, SeqWriter):
 
 
 class JSONOutputFormat(KVWriter):
-
     def __init__(self, filename):
-        self.file = open(filename, 'wt')
+        self.file = open(filename, "wt")
 
     def writekvs(self, kvs):
         for k, v in sorted(kvs.items()):
-            if hasattr(v, 'dtype'):
+            if hasattr(v, "dtype"):
                 kvs[k] = float(v)
-        self.file.write(json.dumps(kvs) + '\n')
+        self.file.write(json.dumps(kvs) + "\n")
         self.file.flush()
 
     def close(self):
@@ -102,11 +116,10 @@ class JSONOutputFormat(KVWriter):
 
 
 class CSVOutputFormat(KVWriter):
-
     def __init__(self, filename):
-        self.file = open(filename, 'w+t')
+        self.file = open(filename, "w+t")
         self.keys = []
-        self.sep = ','
+        self.sep = ","
 
     def writekvs(self, kvs):
         extra_keys = list(kvs.keys() - self.keys)
@@ -118,80 +131,39 @@ class CSVOutputFormat(KVWriter):
             self.file.seek(0)
             for i, k in enumerate(self.keys):
                 if i > 0:
-                    self.file.write(',')
+                    self.file.write(",")
                 self.file.write(k)
-            self.file.write('\n')
+            self.file.write("\n")
             for line in lines[1:]:
                 self.file.write(line[:-1])
                 self.file.write(self.sep * len(extra_keys))
-                self.file.write('\n')
+                self.file.write("\n")
         for i, k in enumerate(self.keys):
             if i > 0:
-                self.file.write(',')
+                self.file.write(",")
             v = kvs.get(k)
             if v is not None:
                 self.file.write(str(v))
-        self.file.write('\n')
+        self.file.write("\n")
         self.file.flush()
 
     def close(self):
         self.file.close()
 
 
-class TensorBoardOutputFormat(KVWriter):
-    """
-    Dumps key/value pairs into TensorBoard's numeric format.
-    """
 
-    def __init__(self, dir):
-        os.makedirs(dir, exist_ok=True)
-        self.dir = dir
-        self.step = 1
-        prefix = 'events'
-        path = osp.join(osp.abspath(dir), prefix)
-        import tensorflow as tf
-        from tensorflow.python import pywrap_tensorflow
-        from tensorflow.core.util import event_pb2
-        from tensorflow.python.util import compat
-        self.tf = tf
-        self.event_pb2 = event_pb2
-        self.pywrap_tensorflow = pywrap_tensorflow
-        self.writer = pywrap_tensorflow.EventsWriter(compat.as_bytes(path))
-
-    def writekvs(self, kvs):
-
-        def summary_val(k, v):
-            kwargs = {'tag': k, 'simple_value': float(v)}
-            return self.tf.Summary.Value(**kwargs)
-        summary = self.tf.Summary(value=[summary_val(k, v) for k, v in kvs.
-            items()])
-        event = self.event_pb2.Event(wall_time=time.time(), summary=summary)
-        event.step = self.step
-        self.writer.WriteEvent(event)
-        self.writer.Flush()
-        self.step += 1
-
-    def close(self):
-        if self.writer:
-            self.writer.Close()
-            self.writer = None
-
-
-def make_output_format(format, ev_dir, log_suffix=''):
+def make_output_format(format, ev_dir, log_suffix=""):
     os.makedirs(ev_dir, exist_ok=True)
-    if format == 'stdout':
+    if format == "stdout":
         return HumanOutputFormat(sys.stdout)
-    elif format == 'log':
-        return HumanOutputFormat(osp.join(ev_dir, 'log%s.txt' % log_suffix))
-    elif format == 'json':
-        return JSONOutputFormat(osp.join(ev_dir, 'progress%s.json' %
-            log_suffix))
-    elif format == 'csv':
-        return CSVOutputFormat(osp.join(ev_dir, 'progress%s.csv' % log_suffix))
-    elif format == 'tensorboard':
-        return TensorBoardOutputFormat(osp.join(ev_dir, 'tb%s' % log_suffix))
+    elif format == "log":
+        return HumanOutputFormat(osp.join(ev_dir, "log%s.txt" % log_suffix))
+    elif format == "json":
+        return JSONOutputFormat(osp.join(ev_dir, "progress%s.json" % log_suffix))
+    elif format == "csv":
+        return CSVOutputFormat(osp.join(ev_dir, "progress%s.csv" % log_suffix))
     else:
-        raise ValueError('Unknown format specified: %s' % (format,))
+        raise ValueError("Unknown format specified: %s" % (format,))
 
 
 def logkv(key, val):
@@ -277,7 +249,7 @@ dump_tabular = dumpkvs
 
 @contextmanager
 def profile_kv(scopename):
-    logkey = 'wait_' + scopename
+    logkey = "wait_" + scopename
     tstart = time.time()
     try:
         yield
@@ -293,11 +265,12 @@ def profile(n):
     """
 
     def decorator_with_name(func):
-
         def func_wrapper(*args, **kwargs):
             with profile_kv(n):
                 return func(*args, **kwargs)
+
         return func_wrapper
+
     return decorator_with_name
 
 
@@ -331,10 +304,15 @@ class Logger(object):
         if self.comm is None:
             d = self.name2val
         else:
-            d = mpi_weighted_mean(self.comm, {name: (val, self.name2cnt.get
-                (name, 1)) for name, val in self.name2val.items()})
+            d = mpi_weighted_mean(
+                self.comm,
+                {
+                    name: (val, self.name2cnt.get(name, 1))
+                    for name, val in self.name2val.items()
+                },
+            )
             if self.comm.rank != 0:
-                d['dummy'] = 1
+                d["dummy"] = 1
         out = d.copy()
         for fmt in self.output_formats:
             if isinstance(fmt, KVWriter):
@@ -367,7 +345,7 @@ class Logger(object):
 
 
 def get_rank_without_mpi_import():
-    for varname in ['PMI_RANK', 'OMPI_COMM_WORLD_RANK']:
+    for varname in ["PMI_RANK", "OMPI_COMM_WORLD_RANK"]:
         if varname in os.environ:
             return int(os.environ[varname])
     return 0
@@ -391,8 +369,10 @@ def mpi_weighted_mean(comm, local_name2valcount):
                 except ValueError:
                     if comm.rank == 0:
                         warnings.warn(
-                            'WARNING: tried to compute mean on non-float {}={}'
-                            .format(name, val))
+                            "WARNING: tried to compute mean on non-float {}={}".format(
+                                name, val
+                            )
+                        )
                 else:
                     name2sum[name] += val * count
                     name2count[name] += count
@@ -401,35 +381,35 @@ def mpi_weighted_mean(comm, local_name2valcount):
         return {}
 
 
-def configure(dir=None, format_strs=None, comm=None, log_suffix=''):
+def configure(dir=None, format_strs=None, comm=None, log_suffix=""):
     """
     If comm is provided, average all numerical stats across that comm
     """
     if dir is None:
-        dir = os.getenv('OPENAI_LOGDIR')
+        dir = os.getenv("OPENAI_LOGDIR")
     if dir is None:
-        dir = osp.join(tempfile.gettempdir(), datetime.datetime.now().
-            strftime('openai-%Y-%m-%d-%H-%M-%S-%f'))
+        dir = osp.join(
+            tempfile.gettempdir(),
+            datetime.datetime.now().strftime("openai-%Y-%m-%d-%H-%M-%S-%f"),
+        )
     assert isinstance(dir, str)
     dir = os.path.expanduser(dir)
     os.makedirs(os.path.expanduser(dir), exist_ok=True)
     rank = get_rank_without_mpi_import()
     if rank == 0:
-        print('created log dir {}'.format(dir))
+        print("created log dir {}".format(dir))
     if rank > 0:
-        log_suffix = log_suffix + '-rank%03i' % rank
+        log_suffix = log_suffix + "-rank%03i" % rank
     if format_strs is None:
         if rank == 0:
-            format_strs = os.getenv('OPENAI_LOG_FORMAT', 'stdout,log,csv'
-                ).split(',')
+            format_strs = os.getenv("OPENAI_LOG_FORMAT", "stdout,log,csv").split(",")
         else:
-            format_strs = os.getenv('OPENAI_LOG_FORMAT_MPI', 'log').split(',')
+            format_strs = os.getenv("OPENAI_LOG_FORMAT_MPI", "log").split(",")
     format_strs = filter(None, format_strs)
-    output_formats = [make_output_format(f, dir, log_suffix) for f in
-        format_strs]
+    output_formats = [make_output_format(f, dir, log_suffix) for f in format_strs]
     Logger.CURRENT = Logger(dir=dir, output_formats=output_formats, comm=comm)
     if output_formats:
-        log('Logging to %s' % dir)
+        log("Logging to %s" % dir)
 
 
 def _configure_default_logger():
@@ -441,7 +421,7 @@ def reset():
     if Logger.CURRENT is not Logger.DEFAULT:
         Logger.CURRENT.close()
         Logger.CURRENT = Logger.DEFAULT
-        log('Reset logger')
+        log("Reset logger")
 
 
 @contextmanager
