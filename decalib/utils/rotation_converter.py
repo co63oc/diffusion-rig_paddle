@@ -18,8 +18,6 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import paddle
 
-import utils.paddle_add
-
 """ Rotation Converter
 Repre: euler angle(3), angle axis(3), rotation matrix(3x3), quaternion(4)
 ref: https://kornia.readthedocs.io/en/v0.1.2/_modules/torchgeometry/core/conversions.html#
@@ -318,6 +316,7 @@ def quaternion_to_angle_axis(quaternion: paddle.Tensor):
         raise ValueError(
             "Input must be a tensor of shape Nx4 or 4. Got {}".format(quaternion.shape)
         )
+    # unpack input and compute conversion
     q1: paddle.Tensor = quaternion[..., 1]
     q2: paddle.Tensor = quaternion[..., 2]
     q3: paddle.Tensor = quaternion[..., 3]
@@ -343,6 +342,7 @@ def quaternion_to_angle_axis(quaternion: paddle.Tensor):
     return angle_axis
 
 
+# batch converter
 def batch_euler2axis(r):
     return quaternion_to_angle_axis(euler_to_quaternion(r))
 
@@ -352,6 +352,10 @@ def batch_euler2matrix(r):
 
 
 def batch_matrix2euler(rot_mats):
+    # Calculates rotation matrix to euler angles
+    # Careful for extreme cases of eular angles like [0.0, pi, 0.0]
+    # only y?
+    # TODO:
     sy = paddle.sqrt(
         x=rot_mats[:, (0), (0)] * rot_mats[:, (0), (0)]
         + rot_mats[:, (1), (0)] * rot_mats[:, (1), (0)]
@@ -364,6 +368,10 @@ def batch_matrix2axis(rot_mats):
 
 
 def batch_axis2matrix(theta):
+    # angle axis to rotation matrix
+    # theta N x 3
+    # return quat2mat(quat)
+    # batch_rodrigues
     return quaternion_to_rotation_matrix(angle_axis_to_quaternion(theta))
 
 
@@ -404,6 +412,8 @@ def batch_rodrigues(rot_vecs, epsilon=1e-08, dtype="float32"):
     rot_dir = rot_vecs / angle
     cos = paddle.unsqueeze(x=paddle.cos(x=angle), axis=1)
     sin = paddle.unsqueeze(x=paddle.sin(x=angle), axis=1)
+
+    # Bx1 arrays
     rx, ry, rz = paddle_add.split(
         x=rot_dir, num_or_sections=rot_dir.shape[1] // 1, axis=1
     )

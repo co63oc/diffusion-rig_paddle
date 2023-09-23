@@ -47,10 +47,15 @@ class Trainer(object):
         self.image_size = self.cfg.dataset.image_size
         self.uv_size = self.cfg.model.uv_size
         self.K = self.cfg.dataset.K
+        # training stage: coarse and detail
         self.train_detail = self.cfg.train.train_detail
+
+        # deca model
         self.deca = model.to(self.place)
         self.configure_optimizers()
         self.load_checkpoint()
+
+        # initialize loss
         if self.train_detail:
             self.mrf_loss = lossfunc.IDMRFLoss()
             self.face_attr_mask = util.load_local_mask(
@@ -63,10 +68,6 @@ class Trainer(object):
         logger.add(
             os.path.join(self.cfg.output_dir, self.cfg.train.log_dir, "train.log")
         )
-        # TODO: not need tensorboard
-        # if self.cfg.train.write_summary:
-        #     self.writer = torch.utils.tensorboard.SummaryWriter(log_dir=os.
-        #         path.join(self.cfg.output_dir, self.cfg.train.log_dir))
 
     def configure_optimizers(self):
         if self.train_detail:
@@ -85,6 +86,7 @@ class Trainer(object):
 
     def load_checkpoint(self):
         model_dict = self.deca.model_dict()
+        # resume training, including model weight, opt, steps
         if self.cfg.train.resume and os.path.exists(
             os.path.join(self.cfg.output_dir, "model.tar")
         ):
@@ -100,6 +102,7 @@ class Trainer(object):
                 f"resume training from {os.path.join(self.cfg.output_dir, 'model.tar')}"
             )
             logger.info(f"training start from step {self.global_step}")
+        # load model weights only
         elif os.path.exists(self.cfg.pretrained_modelpath):
             checkpoint = paddle.load(path=self.cfg.pretrained_modelpath)
             key = "E_flame"
@@ -113,6 +116,7 @@ class Trainer(object):
         self.deca.train()
         if self.train_detail:
             self.deca.E_flame.eval()
+        # [B, K, 3, size, size] ==> [BxK, 3, size, size]
         images = paddle.to_tensor(batch["image"], place=self.place)
         images = images.reshape(
             [-1, images.shape[-3], images.shape[-2], images.shape[-1]]
@@ -122,6 +126,8 @@ class Trainer(object):
         masks = paddle.to_tensor(batch["mask"], place=self.place)
         masks = masks.reshape([-1, images.shape[-2], images.shape[-1]])
         codedict = self.deca.encode(images, use_detail=self.train_detail)
+        # shape constraints for coarse model
+        # detail consistency for detail model
         if self.cfg.loss.shape_consistency or self.cfg.loss.detail_consistency:
             """
             make sure s0, s1 is something to make shape close
@@ -307,8 +313,8 @@ class Trainer(object):
                 x=uv_texture[
                     :,
                     :,
-                    self.face_attr_mask[pi][2]: self.face_attr_mask[pi][3],
-                    self.face_attr_mask[pi][0]: self.face_attr_mask[pi][1],
+                    self.face_attr_mask[pi][2] : self.face_attr_mask[pi][3],
+                    self.face_attr_mask[pi][0] : self.face_attr_mask[pi][1],
                 ],
                 size=[new_size, new_size],
                 mode="bilinear",
@@ -317,8 +323,8 @@ class Trainer(object):
                 x=uv_texture_gt[
                     :,
                     :,
-                    self.face_attr_mask[pi][2]: self.face_attr_mask[pi][3],
-                    self.face_attr_mask[pi][0]: self.face_attr_mask[pi][1],
+                    self.face_attr_mask[pi][2] : self.face_attr_mask[pi][3],
+                    self.face_attr_mask[pi][0] : self.face_attr_mask[pi][1],
                 ],
                 size=[new_size, new_size],
                 mode="bilinear",
@@ -429,11 +435,13 @@ class Trainer(object):
             landmark_7 = landmark_7.cpu().numpy()
             for k in range(images.shape[0]):
                 os.makedirs(os.path.join(savefolder, imagename[k]), exist_ok=True)
+                # save mesh
                 util.write_obj(
                     os.path.join(savefolder, f"{imagename[k]}.obj"),
                     vertices=verts[k],
                     faces=faces,
                 )
+                # save 7 landmarks for alignment
                 np.save(os.path.join(savefolder, f"{imagename[k]}.npy"), landmark_7[k])
                 for vis_name in visdict.keys():
                     if vis_name not in visdict.keys():

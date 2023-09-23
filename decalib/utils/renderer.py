@@ -41,6 +41,10 @@ def set_rasterizer(type="paddle3d"):
         )
         from standard_rasterize_cuda import standard_rasterize
 
+        # If JIT does not work, try manually installation first
+        # 1. see instruction here: pixielib/utils/rasterizer/INSTALL.md
+        # 2. add this: "from .rasterizer.standard_rasterize_cuda import standard_rasterize" here
+
 
 class StandardRasterizer(paddle.nn.Layer):
     """Alg: https://www.scratchapixel.com/lessons/3d-basic-rendering/rasterization-practical-implementation
@@ -83,6 +87,7 @@ class StandardRasterizer(paddle.nn.Layer):
             .to(device)
         )
         vertices = vertices.clone().astype(dtype="float32")
+        # compatibale with pytorch3d ndc, see https://github.com/facebookresearch/pytorch3d/blob/e42b0c4f704fa0f5e262f370dccac537b5edf2b1/pytorch3d/csrc/rasterize_meshes/rasterize_meshes.cu#L232
         vertices[(...), :2] = -vertices[(...), :2]
         vertices[..., 0] = vertices[..., 0] * w / 2 + w / 2
         vertices[..., 1] = vertices[..., 1] * h / 2 + h / 2
@@ -115,7 +120,7 @@ class StandardRasterizer(paddle.nn.Layer):
             (N, H, W, K, 3, D)
         )
         pixel_vals = (bary_coords[..., None] * pixel_face_vals).sum(axis=-2)
-        pixel_vals[mask] = 0
+        pixel_vals[mask] = 0  # Replace masked values in output.
         pixel_vals = pixel_vals[:, :, :, (0)].transpose(perm=[0, 3, 1, 2])
         pixel_vals = paddle.concat(
             x=[pixel_vals, vismask[:, :, :, (0)][:, (None), :, :]], axis=1
@@ -124,6 +129,7 @@ class StandardRasterizer(paddle.nn.Layer):
 
 
 class Pytorch3dRasterizer(paddle.nn.Layer):
+    # TODO: add support for rendering non-squared images, since pytorc3d supports this now
     """Borrowed from https://github.com/facebookresearch/pytorch3d
     Notice:
         x,y,z are in image space, normalized
@@ -225,6 +231,8 @@ class SRenderY(paddle.nn.Layer):
             uvfaces = uvfaces[None, ...]
         else:
             NotImplementedError
+
+        # faces
         dense_triangles = util.generate_triangles(uv_size, uv_size)
         self.register_buffer(
             name="dense_faces",
@@ -234,6 +242,8 @@ class SRenderY(paddle.nn.Layer):
         )
         self.register_buffer(name="faces", tensor=faces)
         self.register_buffer(name="raw_uvcoords", tensor=uvcoords)
+
+        # uv coords
         uvcoords = paddle.concat(x=[uvcoords, uvcoords[:, :, 0:1] * 0.0 + 1.0], axis=-1)
         uvcoords = uvcoords * 2 - 1
         uvcoords[..., 1] = -uvcoords[..., 1]
@@ -241,6 +251,8 @@ class SRenderY(paddle.nn.Layer):
         self.register_buffer(name="uvcoords", tensor=uvcoords)
         self.register_buffer(name="uvfaces", tensor=uvfaces)
         self.register_buffer(name="face_uvcoords", tensor=face_uvcoords)
+
+        # shape colors, for rendering shape overlay
         colors = (
             paddle.to_tensor(data=[180, 180, 180])[(None), (None), :]
             .tile(repeat_times=[1, faces.max() + 1, 1])
@@ -249,6 +261,8 @@ class SRenderY(paddle.nn.Layer):
         )
         face_colors = util.face_vertices(colors, faces)
         self.register_buffer(name="face_colors", tensor=face_colors)
+
+        # SH factors for lighting
         pi = np.pi
         constant_factor = paddle.to_tensor(
             data=[
@@ -291,7 +305,9 @@ class SRenderY(paddle.nn.Layer):
             point or directional
         """
         batch_size = vertices.shape[0]
+        # rasterizer near 0 far 100. move mesh so minz larger than 0
         transformed_vertices[:, :, (2)] = transformed_vertices[:, :, (2)] + 10
+        # attributes
         face_vertices = util.face_vertices(
             vertices, self.faces.expand(shape=[batch_size, -1, -1])
         )
@@ -316,6 +332,7 @@ class SRenderY(paddle.nn.Layer):
             ],
             axis=-1,
         )
+        # rasterize
         rendering, bary_cords, pix_to_face = self.rasterizer(
             transformed_vertices,
             self.faces.expand(shape=[batch_size, -1, -1]),
@@ -324,14 +341,22 @@ class SRenderY(paddle.nn.Layer):
             w,
             return_bary=True,
         )
+
+        # vis mask
         alpha_images = rendering[:, (-1), :, :][:, (None), :, :].detach()
+
+        # albedo
         uvcoords_images = rendering[:, :3, :, :]
         grid = uvcoords_images.transpose(perm=[0, 2, 3, 1])[:, :, :, :2]
         albedo_images = paddle.nn.functional.grid_sample(
             x=albedos, grid=grid, align_corners=False
         )
+
+        # visible mask for pixels with positive normal direction
         transformed_normal_map = rendering[:, 3:6, :, :].detach()
         pos_mask = (transformed_normal_map[:, 2:, :, :] < -0.05).astype(dtype="float32")
+
+        # shading
         normal_images = rendering[:, 9:12, :, :]
         if add_light:
             if lights is not None:
@@ -407,7 +432,7 @@ class SRenderY(paddle.nn.Layer):
                 3 * N[:, (2)] ** 2 - 1,
             ],
             axis=1,
-        )
+        )  # [bz, 9, h, w]
         sh = sh * self.constant_factor[(None), :, (None), (None)]
         shading = paddle.sum(
             x=sh_coeff[:, :, :, (None), (None)] * sh[:, :, (None), :, :], axis=1
@@ -483,6 +508,7 @@ class SRenderY(paddle.nn.Layer):
         -- rendering shape with detail normal map
         """
         batch_size = vertices.shape[0]
+        # set lighting
         if lights is None:
             light_positions = (
                 paddle.to_tensor(
@@ -498,6 +524,7 @@ class SRenderY(paddle.nn.Layer):
                 vertices.place
             )
         transformed_vertices[:, :, (2)] = transformed_vertices[:, :, (2)] + 10
+        # Attributes
         face_vertices = util.face_vertices(
             vertices, self.faces.expand(shape=[batch_size, -1, -1])
         )
@@ -525,6 +552,7 @@ class SRenderY(paddle.nn.Layer):
             ],
             axis=-1,
         )
+        # rasterize
         rendering = self.rasterizer(
             transformed_vertices,
             self.faces.expand(shape=[batch_size, -1, -1]),
@@ -533,11 +561,14 @@ class SRenderY(paddle.nn.Layer):
             w,
         )
         alpha_images = rendering[:, (-1), :, :][:, (None), :, :].detach()
+        # albedo
         albedo_images = rendering[:, :3, :, :]
+        # mask
         transformed_normal_map = rendering[:, 3:6, :, :].detach()
         pos_mask = (transformed_normal_map[:, 2:, :, :] < threshold).astype(
             dtype="float32"
         )
+        # shading
         normal_images = rendering[:, 9:12, :, :].detach()
         vertice_images = rendering[:, 6:9, :, :].detach()
         if detail_normal_images is not None:

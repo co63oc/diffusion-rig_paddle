@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
 import os
 from collections import OrderedDict
 
@@ -20,7 +19,6 @@ import cv2
 import numpy as np
 import paddle
 from scipy.ndimage import morphology
-from skimage.io import imsave
 
 
 def upsample_mesh(
@@ -39,7 +37,7 @@ def upsample_mesh(
         dense_colors: vertex color, [number of dense vertices, 3]
         dense_faces: [number of dense faces, 3]
     """
-    img_size = dense_template["img_size"]
+    # img_size = dense_template["img_size"]
     dense_faces = dense_template["f"]
     x_coords = dense_template["x_coords"]
     y_coords = dense_template["y_coords"]
@@ -162,6 +160,7 @@ def write_obj(
             cv2.imwrite(texture_name, texture)
 
 
+# load obj,  similar to load_obj from pytorch3d
 def load_obj(obj_filename):
     """Ref: https://github.com/facebookresearch/pytorch3d/blob/25c065e9dafa90163e7cec873dbb324a637c68b7/pytorch3d/io/obj_io.py
     Load a mesh from a file-like object.
@@ -170,30 +169,34 @@ def load_obj(obj_filename):
         lines = [line.strip() for line in f]
     verts, uvcoords = [], []
     faces, uv_faces = [], []
+    # startswith expects each line to be a string. If the file is read in as
+    # bytes then first decode to strings.
     if lines and isinstance(lines[0], bytes):
         lines = [el.decode("utf-8") for el in lines]
     for line in lines:
         tokens = line.strip().split()
-        if line.startswith("v "):
+        if line.startswith("v "):  # Line is a vertex.
             vert = [float(x) for x in tokens[1:4]]
             if len(vert) != 3:
                 msg = "Vertex %s does not have 3 values. Line: %s"
                 raise ValueError(msg % (str(vert), str(line)))
             verts.append(vert)
-        elif line.startswith("vt "):
+        elif line.startswith("vt "):  # Line is a texture.
             tx = [float(x) for x in tokens[1:3]]
             if len(tx) != 2:
                 raise ValueError(
                     "Texture %s does not have 2 values. Line: %s" % (str(tx), str(line))
                 )
             uvcoords.append(tx)
-        elif line.startswith("f "):
+        elif line.startswith("f "):  # Line is a face.
+            # Update face properties info.
             face = tokens[1:]
             face_list = [f.split("/") for f in face]
             for vert_props in face_list:
                 faces.append(int(vert_props[0]))
                 if len(vert_props) > 1:
                     if vert_props[1] != "":
+                        # Texture index is present e.g. f 4/1/1.
                         uv_faces.append(int(vert_props[1]))
     verts = paddle.to_tensor(data=verts, dtype="float32")
     uvcoords = paddle.to_tensor(data=uvcoords, dtype="float32")
@@ -204,7 +207,13 @@ def load_obj(obj_filename):
     return verts, uvcoords, faces, uv_faces
 
 
+# process/generate vertices, normals, faces
 def generate_triangles(h, w, margin_x=2, margin_y=5, mask=None):
+    # quad layout:
+    # 0 1 ... w-1
+    # w w+1
+    # .
+    # w*h
     triangles = []
     for x in range(margin_x, w - 1 - margin_x):
         for y in range(margin_y, h - 1 - margin_y):
@@ -217,6 +226,7 @@ def generate_triangles(h, w, margin_x=2, margin_y=5, mask=None):
     return triangles
 
 
+# borrowed from https://github.com/daniilidis-group/neural_renderer/blob/master/neural_renderer/vertices_to_faces.py
 def face_vertices(vertices, faces):
     """
     :param vertices: [batch size, number of vertices, 3]
@@ -236,6 +246,7 @@ def face_vertices(vertices, faces):
         + (paddle.arange(end=bs).astype("int32").to(device) * nv)[:, (None), (None)]
     )
     vertices = vertices.reshape((bs * nv, 3))
+    # pytorch only supports long and byte tensors for indexing
     return vertices[faces.astype(dtype="int64")]
 
 
@@ -305,11 +316,13 @@ def batch_orth_proj(X, camera):
     camera = camera.clone().reshape([-1, 1, 3])
     X_trans = X[:, :, :2] + camera[:, :, 1:]
     X_trans = paddle.concat(x=[X_trans, X[:, :, 2:]], axis=2)
-    shape = X_trans.shape
+    # shape = X_trans.shape
     Xn = camera[:, :, 0:1] * X_trans
     return Xn
 
 
+# image processing
+# borrowed from: https://torchgeometry.readthedocs.io/en/latest/_modules/kornia/filters
 def gaussian(window_size, sigma):
     def gauss_fcn(x):
         return -((x - window_size // 2) ** 2) / float(2 * sigma**2)
@@ -468,6 +481,7 @@ def get_laplacian_kernel2d(kernel_size: int):
 
 
 def laplacian(x):
+    # https://torchgeometry.readthedocs.io/en/latest/_modules/kornia/filters/laplacian.html
     b, c, h, w = x.shape
     kernel_size = 3
     kernel = get_laplacian_kernel2d(kernel_size).to(x.place).to(x.dtype)
@@ -493,8 +507,8 @@ def angle2matrix(angles):
     c = paddle.cos(x=angles)
     cx, cy, cz = c[:, (0)], c[:, (1)], c[:, (2)]
     sx, sy, sz = s[:, (0)], s[:, (1)], s[:, (2)]
-    zeros = paddle.zeros_like(x=s[:, (0)]).to(angles.place)
-    ones = paddle.ones_like(x=s[:, (0)]).to(angles.place)
+    # zeros = paddle.zeros_like(x=s[:, (0)]).to(angles.place)
+    # ones = paddle.ones_like(x=s[:, (0)]).to(angles.place)
     R_flattened = paddle.stack(
         x=[
             cz * cy,
@@ -601,10 +615,12 @@ class Struct(object):
             setattr(self, key, val)
 
 
+# original saved file with DataParallel
 def remove_module(state_dict):
+    # create new OrderedDict that does not contain `module.`
     new_state_dict = OrderedDict()
     for k, v in state_dict.items():
-        name = k[7:]
+        name = k[7:]  # remove `module.`
         new_state_dict[name] = v
     return new_state_dict
 
@@ -616,6 +632,7 @@ def dict_tensor2npy(tensor_dict):
     return npy_dict
 
 
+# visualization
 end_list = np.array([17, 22, 27, 42, 48, 31, 36, 68], dtype=np.int32) - 1
 
 
@@ -677,6 +694,7 @@ def plot_verts(image, kpts, color="r"):
 
 
 def tensor_vis_landmarks(images, landmarks, gt_landmarks=None, color="g", isScale=True):
+    # visualize landmarks
     vis_landmarks = []
     images = images.cpu().numpy()
     predicted_landmarks = landmarks.detach().cpu().numpy()
@@ -721,8 +739,11 @@ def tensor_vis_landmarks(images, landmarks, gt_landmarks=None, color="g", isScal
     return vis_landmarks
 
 
+# for training
 def load_local_mask(image_size=256, mode="bbx"):
     if mode == "bbx":
+        # UV space face attributes bbx in size 2048 (l r t b)
+        # face = np.array([512, 1536, 512, 1536]) #
         face = np.array([400, 1648, 400, 1648])
         forehead = np.array([550, 1498, 430, 700 + 50])
         eye_nose = np.array([490, 1558, 700, 1050 + 50])
@@ -745,12 +766,12 @@ def visualize_grid(visdict, savepath=None, size=224, dim=1, return_gird=True):
     grids = {}
     for key in visdict:
         _, _, h, w = visdict[key].shape
-        if dim == 2:
-            new_h = size
-            new_w = int(w * size / h)
-        elif dim == 1:
-            new_h = int(h * size / w)
-            new_w = size
+        # if dim == 2:
+        #     new_h = size
+        #     new_w = int(w * size / h)
+        # elif dim == 1:
+        #     new_h = int(h * size / w)
+        #     new_w = size
         grids[key] = paddle.to_tensor(0.0)  # TODO: not convert
     grid = paddle.concat(x=list(grids.values()), axis=dim)
     grid_image = (grid.numpy().transpose(1, 2, 0).copy() * 255)[:, :, ([2, 1, 0])]

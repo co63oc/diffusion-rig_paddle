@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-from glob import glob
 
 import numpy as np
 import paddle
@@ -43,8 +42,8 @@ class EthnicityDataset(paddle.io.Dataset):
         datafile = "/ps/scratch/face2d3d/texture_in_the_wild_code/VGGFace2_cleaning_codes/ringnetpp_training_lists/second_cleaning/vggface2_and_race_per_7000_african_asian_2d_train_list_max_normal_100_ring_5_1_serial.npy"
         self.data_lines = np.load(datafile).astype("str")
         self.isTemporal = isTemporal
-        self.scale = scale
-        self.trans_scale = trans_scale
+        self.scale = scale  # [scale_min, scale_max]
+        self.trans_scale = trans_scale  # [dx, dy]
         self.isSingle = isSingle
         if isSingle:
             self.K = 1
@@ -74,7 +73,10 @@ class EthnicityDataset(paddle.io.Dataset):
             image = imread(image_path) / 255.0
             kpt = np.load(kpt_path)[:, :2]
             mask = self.load_mask(seg_path, image.shape[0], image.shape[1])
+
+            # crop information
             tform = self.crop(image, kpt)
+            # crop
             cropped_image = warp(
                 image, tform.inverse, output_shape=(self.image_size, self.image_size)
             )
@@ -84,6 +86,8 @@ class EthnicityDataset(paddle.io.Dataset):
             cropped_kpt = np.dot(
                 tform.params, np.hstack([kpt, np.ones([kpt.shape[0], 1])]).T
             ).T
+
+            # normalized kpt
             cropped_kpt[:, :2] = cropped_kpt[:, :2] / self.image_size * 2 - 1
             images_list.append(cropped_image.transpose(2, 0, 1))
             kpt_list.append(cropped_kpt)
@@ -106,10 +110,14 @@ class EthnicityDataset(paddle.io.Dataset):
         h, w, _ = image.shape
         old_size = (right - left + bottom - top) / 2
         center = np.array([right - (right - left) / 2.0, bottom - (bottom - top) / 2.0])
+        # translate center
         trans_scale = (np.random.rand(2) * 2 - 1) * self.trans_scale
         center = center + trans_scale * old_size
+
         scale = np.random.rand() * (self.scale[1] - self.scale[0]) + self.scale[0]
         size = int(old_size * scale)
+
+        # crop image
         src_pts = np.array(
             [
                 [center[0] - size / 2, center[1] - size / 2],

@@ -13,28 +13,17 @@
 # limitations under the License.
 
 import os
-import pickle
-import sys
 from datetime import datetime
-from time import time
 
-import cv2
 import numpy as np
 import paddle
 from loguru import logger
-from skimage.io import imread
 from tqdm import tqdm
 
-from .datasets import datasets
-from .models.decoders import Generator
-from .models.encoders import ResnetEncoder
-from .models.FLAME import FLAME, FLAMETex
 from .utils import util
 from .utils.config import cfg
-from .utils.renderer import SRenderY
-from .utils.rotation_converter import batch_euler2axis
 
-torch.backends.cudnn.benchmark = True
+# torch.backends.cudnn.benchmark = True
 from .datasets import build_datasets
 from .utils import lossfunc
 
@@ -49,16 +38,22 @@ class Trainer(object):
         self.batch_size = self.cfg.dataset.batch_size
         self.image_size = self.cfg.dataset.image_size
         self.uv_size = self.cfg.model.uv_size
+
+        # deca model
         self.deca = model
         self.E_flame = self.deca.E_flame
         self.flametex = self.deca.flametex
         self.configure_optimizers()
         self.load_checkpoint()
+
+        # initialize loss
         self.mrf_loss = lossfunc.IDMRFLoss()
         self.id_loss = lossfunc.VGGFace2Loss()
         self.face_attr_mask = util.load_local_mask(
             image_size=self.cfg.model.uv_size, mode="bbx"
         )
+
+        # intizalize loggers
         logger.add(
             os.path.join(self.cfg.output_dir, self.cfg.train.log_dir, "train.log")
         )
@@ -76,6 +71,7 @@ class Trainer(object):
 
     def load_checkpoint(self):
         model_dict = self.deca.model_dict()
+        # resume training, including model weight, opt, steps
         if self.cfg.train.resume and os.path.exists(
             os.path.join(self.cfg.output_dir, "model.tar")
         ):
@@ -91,6 +87,7 @@ class Trainer(object):
                 f"resume training from {os.path.join(self.cfg.output_dir, 'model.tar')}"
             )
             logger.info(f"training start from step {self.global_step}")
+        # load model weights only
         elif os.path.exists(self.cfg.pretrained_modelpath):
             checkpoint = paddle.load(path=self.cfg.pretrained_modelpath)
             for key in model_dict.keys():
@@ -103,6 +100,8 @@ class Trainer(object):
 
     def training_step(self, batch, batch_nb):
         self.deca.train()
+
+        # [B, K, 3, size, size] ==> [BxK, 3, size, size]
         images = batch["image"]
         images = images.reshape(
             [-1, images.shape[-3], images.shape[-2], images.shape[-1]]
@@ -112,6 +111,8 @@ class Trainer(object):
         masks = batch["mask"]
         masks = masks.reshape([-1, images.shape[-2], images.shape[-1]])
         codedict = self.deca.encode(images)
+
+        # shape constraints
         if self.cfg.loss.shape_consistency == "exchange":
             """
             make sure s0, s1 is something to make shape close
@@ -131,6 +132,7 @@ class Trainer(object):
             for key in ["tex", "exp", "pose", "cam", "light", "images"]:
                 code = codedict[key]
                 codedict[key] = paddle.concat(x=[code, code], axis=0)
+            # append gt
             images = paddle.concat(x=[images, images], axis=0)
             lmk = paddle.concat(x=[lmk, lmk], axis=0)
             masks = paddle.concat(x=[masks, masks], axis=0)
@@ -138,6 +140,7 @@ class Trainer(object):
         opdict = self.deca.decode(
             codedict, vis_lmk=False, return_vis=False, use_detail=False
         )
+        # mask
         mask_face_eye = paddle.nn.functional.grid_sample(
             x=self.deca.uv_face_eye_mask.expand(shape=[batch_size, -1, -1, -1]),
             grid=opdict["grid"].detach(),
@@ -150,6 +153,7 @@ class Trainer(object):
         opdict["images"] = images
         opdict["lmk"] = lmk
         losses = {}
+        # base shape
         predicted_landmarks = opdict["landmarks2d"]
         if self.cfg.loss.useWlmk:
             losses["landmark"] = (
@@ -201,6 +205,7 @@ class Trainer(object):
             ** 2
         ).mean() * self.cfg.loss.reg_light
         if self.cfg.model.jaw_type == "euler":
+            # reg on jaw pose
             losses["reg_jawpose_roll"] = (
                 paddle.sum(x=codedict["euler_jaw_pose"][:, (-1)] ** 2) / 2 * 10.0
             )
@@ -248,6 +253,7 @@ class Trainer(object):
         )
         os.makedirs(savefolder, exist_ok=True)
         self.deca.eval()
+        # run now validation images
         from .datasets.now import NoWDataset
 
         dataset = NoWDataset(
@@ -265,17 +271,20 @@ class Trainer(object):
                 codedict["exp"][:] = 0.0
                 codedict["pose"][:] = 0.0
                 opdict, visdict = self.deca.decode(codedict)
+            # -- save results for evaluation
             verts = opdict["verts"].cpu().numpy()
             landmark_51 = opdict["landmarks3d_world"][:, 17:]
             landmark_7 = landmark_51[:, ([19, 22, 25, 28, 16, 31, 37])]
             landmark_7 = landmark_7.cpu().numpy()
             for k in range(images.shape[0]):
                 os.makedirs(os.path.join(savefolder, imagename[k]), exist_ok=True)
+                # save mesh
                 util.write_obj(
                     os.path.join(savefolder, f"{imagename[k]}.obj"),
                     vertices=verts[k],
                     faces=faces,
                 )
+                # save 7 landmarks for alignment
                 np.save(os.path.join(savefolder, f"{imagename[k]}.npy"), landmark_7[k])
             util.visualize_grid(visdict, os.path.join(savefolder, f"{i}.jpg"))
 

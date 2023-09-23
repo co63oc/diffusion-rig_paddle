@@ -18,20 +18,18 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from functools import reduce
 
-import cv2
 import numpy as np
 import paddle
 import torchfile
 
-import utils.paddle_add
-
-from . import util
+from utils import paddle_add
 
 
 def l2_distance(verts1, verts2):
     return paddle.sqrt(x=((verts1 - verts2) ** 2).sum(axis=2)).mean(axis=1).mean()
 
 
+# VAE
 def kl_loss(texcode):
     """
     recon_x: generating images
@@ -48,9 +46,15 @@ def kl_loss(texcode):
         .add_(y=paddle.to_tensor(logvar))
     )
     KLD = paddle.sum(x=KLD_element).scale_(-0.5)
+    # KL divergence
     return KLD
 
 
+# ------------------------------------- Losses/Regularizations for shading
+# white shading
+# uv_mask_tf = tf.expand_dims(tf.expand_dims(tf.constant( self.uv_mask, dtype = tf.float32 ), 0), -1)
+# mean_shade = tf.reduce_mean( tf.multiply(shade_300W, uv_mask_tf) , axis=[0,1,2]) * 16384 / 10379
+# G_loss_white_shading = 10*norm_loss(mean_shade,  0.99*tf.ones([1, 3], dtype=tf.float32), loss_type = "l2")
 def shading_white_loss(shading):
     """
     regularize lighting: assume lights close to white
@@ -70,6 +74,7 @@ def shading_smooth_loss(shading):
     return gradient_image.mean()
 
 
+# ------------------------------------- Losses/Regularizations for albedo
 def albedo_constancy_loss(albedo, alpha=15, weight=1.0):
     """
     for similarity of neighbors
@@ -207,18 +212,22 @@ def lipd_loss(predicted_landmarks, landmarks_gt, weight=1.0):
 
 
 def weighted_landmark_loss(predicted_landmarks, landmarks_gt, weight=1.0):
+    # smaller inner landmark weights
     real_2d = landmarks_gt
     weights = paddle.ones(shape=(68,))
     weights[5:7] = 2
     weights[10:12] = 2
+    # nose points
     weights[27:36] = 1.5
     weights[30] = 3
     weights[31] = 3
     weights[35] = 3
+    # inner mouth
     weights[60:68] = 1.5
     weights[48:60] = 1.5
     weights[48] = 3
     weights[54] = 3
+
     loss_lmk_2d = batch_kp_2d_l1_loss(real_2d, predicted_landmarks, weights)
     return loss_lmk_2d * weight
 
@@ -289,6 +298,7 @@ def ring_loss(ring_outputs, ring_type, margin, weight=1.0):
     return tot_ring_loss * weight
 
 
+# images/features/perceptual
 def gradient_dif_loss(prediction, gt):
     prediction_diff_x = prediction[:, :, 1:-1, 1:] - prediction[:, :, 1:-1, :-1]
     prediction_diff_y = prediction[:, :, 1:, 1:-1] - prediction[:, :, 1:, 1:-1]
@@ -740,6 +750,7 @@ class VGGLoss(paddle.nn.Layer):
         return self.style_loss + self.content_loss
 
 
+# ref: https://github.com/cydonia999/VGGFace2-pytorch
 from ..models.frnet import load_state_dict, resnet50
 
 

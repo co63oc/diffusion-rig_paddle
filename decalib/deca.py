@@ -57,6 +57,7 @@ class DECA(paddle.nn.Layer):
             rasterizer_type=self.cfg.rasterizer_type,
         )
         self.render = paddle.to_tensor(self.render, place=self.place)
+        # face mask for rendering details
         mask = imread(model_cfg.face_eye_mask_path).astype(np.float32) / 255.0
         mask = paddle.to_tensor(data=mask[:, :, (0)])[(None), (None), :, :]
         self.uv_face_eye_mask = paddle.nn.functional.interpolate(
@@ -71,9 +72,11 @@ class DECA(paddle.nn.Layer):
             x=mask, size=[model_cfg.uv_size, model_cfg.uv_size]
         )
         self.uv_face_mask = paddle.to_tensor(self.uv_face_mask, place=self.place)
+        # displacement correction
         fixed_dis = np.load(model_cfg.fixed_displacement_path)
         self.fixed_uv_dis = paddle.to_tensor(data=fixed_dis).astype(dtype="float32")
         self.fixed_uv_dis = paddle.to_tensor(self.fixed_uv_dis, place=self.place)
+        # mean texture
         mean_texture = imread(model_cfg.mean_tex_path).astype(np.float32) / 255.0
         mean_texture = paddle.to_tensor(data=mean_texture.transpose(2, 0, 1))[
             (None), :, :, :
@@ -82,11 +85,13 @@ class DECA(paddle.nn.Layer):
             x=mean_texture, size=[model_cfg.uv_size, model_cfg.uv_size]
         )
         self.mean_texture = paddle.to_tensor(self.mean_texture, place=self.place)
+        # dense mesh template, for save detail mesh
         self.dense_template = np.load(
             model_cfg.dense_template_path, allow_pickle=True, encoding="latin1"
         ).item()
 
     def _create_model(self, model_cfg):
+        # set up parameters
         self.n_param = (
             model_cfg.n_shape
             + model_cfg.n_tex
@@ -96,7 +101,7 @@ class DECA(paddle.nn.Layer):
             + model_cfg.n_light
         )
         self.n_detail = model_cfg.n_detail
-        self.n_cond = model_cfg.n_exp + 3
+        self.n_cond = model_cfg.n_exp + 3  # exp + jaw pose
         self.num_list = [
             model_cfg.n_shape,
             model_cfg.n_tex,
@@ -179,6 +184,7 @@ class DECA(paddle.nn.Layer):
 
     def encode(self, images, use_detail=True):
         if use_detail:
+            # use_detail is for training detail model, need to set coarse model as eval mode
             with paddle.no_grad():
                 parameters = self.E_flame(images)
         else:
@@ -223,9 +229,9 @@ class DECA(paddle.nn.Layer):
             pose_params=codedict["pose"],
         )
         if align_ffhq and ffhq_center is not None or return_ffhq_center:
-            lm_eye_left = landmarks2d[:, 36:42]
-            lm_eye_right = landmarks2d[:, 42:48]
-            lm_mouth_outer = landmarks2d[:, 48:60]
+            lm_eye_left = landmarks2d[:, 36:42]  # left-clockwise
+            lm_eye_right = landmarks2d[:, 42:48]  # left-clockwise
+            lm_mouth_outer = landmarks2d[:, 48:60]  # left-clockwise
             eye_left = paddle.mean(x=lm_eye_left, axis=1)
             eye_right = paddle.mean(x=lm_eye_right, axis=1)
             eye_avg = (eye_left + eye_right) * 0.5
@@ -244,6 +250,8 @@ class DECA(paddle.nn.Layer):
         else:
             albedo = paddle.zeros(shape=[batch_size, 3, self.uv_size, self.uv_size])
         landmarks3d_world = landmarks3d.clone()
+
+        # projection
         landmarks2d = util.batch_orth_proj(landmarks2d, codedict["cam"])[:, :, :2]
         landmarks2d[:, :, 1:] = -landmarks2d[:, :, 1:]
         landmarks3d = util.batch_orth_proj(landmarks3d, codedict["cam"])
@@ -325,6 +333,7 @@ class DECA(paddle.nn.Layer):
         texture = util.tensor2image(opdict["uv_texture_gt"][i])
         uvcoords = self.render.raw_uvcoords[0].cpu().numpy()
         uvfaces = self.render.uvfaces[0].cpu().numpy()
+        # save coarse mesh, with texture and normal map
         normal_map = util.tensor2image(opdict["uv_detail_normals"][i] * 0.5 + 0.5)
         util.write_obj(
             filename,
@@ -335,6 +344,7 @@ class DECA(paddle.nn.Layer):
             uvfaces=uvfaces,
             normal_map=normal_map,
         )
+        # upsample mesh, save detailed mesh
         texture = texture[:, :, ([2, 1, 0])]
         normals = opdict["normals"][i].cpu().numpy()
         displacement_map = opdict["displacement_map"][i].cpu().numpy().squeeze()

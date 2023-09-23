@@ -19,10 +19,14 @@ import cv2
 import numpy as np
 import paddle
 from skimage.io import imread
-from skimage.transform import estimate_transform, rescale, resize, warp
+from skimage.transform import estimate_transform, rescale, warp
 
 from . import detectors
-
+from .vggface import *
+from .aflw2000 import *
+from .now import *
+from .ethnicity import *
+from .vbox import *
 
 def build_dataloader(config, is_train=True):
     data_list = []
@@ -156,6 +160,7 @@ class VoxelDataset(paddle.io.Dataset):
                             continue
                         self.face_dict[key] = sorted(name_list)
         elif dataname == "vox2":
+            # clean version: filter out images with bad landmark labels, may lack extreme pose example
             self.kpt_suffix = ".npy"
             self.imagefolder = (
                 "/ps/scratch/face2d3d/VoxCeleb/vox2/dev/images_cropped_full_height"
@@ -172,6 +177,7 @@ class VoxelDataset(paddle.io.Dataset):
                     self.face_dict[key] = []
                 else:
                     self.face_dict[key].append(name)
+            # filter face
             keys = list(self.face_dict.keys())
             for key in keys:
                 if len(self.face_dict[key]) < self.K:
@@ -182,8 +188,8 @@ class VoxelDataset(paddle.io.Dataset):
         if isEval:
             self.face_list = list(self.face_dict.keys())[:n_train][-100:]
         self.isTemporal = isTemporal
-        self.scale = scale
-        self.trans_scale = trans_scale
+        self.scale = scale  # [scale_min, scale_max]
+        self.trans_scale = trans_scale  # [dx, dy]
         self.isSingle = isSingle
         if isSingle:
             self.K = 1
@@ -221,7 +227,10 @@ class VoxelDataset(paddle.io.Dataset):
             image = imread(image_path) / 255.0
             kpt = np.load(kpt_path)[:, :2]
             mask = self.load_mask(seg_path, image.shape[0], image.shape[1])
+
+            # crop information
             tform = self.crop(image, kpt)
+            # crop
             cropped_image = warp(
                 image, tform.inverse, output_shape=(self.image_size, self.image_size)
             )
@@ -231,7 +240,10 @@ class VoxelDataset(paddle.io.Dataset):
             cropped_kpt = np.dot(
                 tform.params, np.hstack([kpt, np.ones([kpt.shape[0], 1])]).T
             ).T
+
+            # normalized kpt
             cropped_kpt[:, :2] = cropped_kpt[:, :2] / self.image_size * 2 - 1
+
             images_list.append(cropped_image.transpose(2, 0, 1))
             kpt_list.append(cropped_kpt)
             mask_list.append(cropped_mask)
@@ -253,10 +265,14 @@ class VoxelDataset(paddle.io.Dataset):
         h, w, _ = image.shape
         old_size = (right - left + bottom - top) / 2
         center = np.array([right - (right - left) / 2.0, bottom - (bottom - top) / 2.0])
+        # translate center
         trans_scale = (np.random.rand(2) * 2 - 1) * self.trans_scale
         center = center + trans_scale * old_size
+
         scale = np.random.rand() * (self.scale[1] - self.scale[0]) + self.scale[0]
         size = int(old_size * scale)
+
+        # crop image
         src_pts = np.array(
             [
                 [center[0] - size / 2, center[1] - size / 2],
@@ -288,8 +304,8 @@ class COCODataset(paddle.io.Dataset):
         self.imagefolder = "/ps/scratch/yfeng/Data/COCO/raw/train2017"
         self.kptfolder = "/ps/scratch/yfeng/Data/COCO/face/train2017_kpt"
         self.kptpath_list = os.listdir(self.kptfolder)
-        self.scale = scale
-        self.trans_scale = trans_scale
+        self.scale = scale  # [scale_min, scale_max]
+        self.trans_scale = trans_scale  # 0.5?
 
     def __len__(self):
         return len(self.kptpath_list)

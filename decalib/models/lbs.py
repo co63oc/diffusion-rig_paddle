@@ -23,6 +23,9 @@ import utils.paddle_add
 
 
 def rot_mat_to_euler(rot_mats):
+    # Calculates rotation matrix to euler angles
+    # Careful for extreme cases of eular angles like [0.0, pi, 0.0]
+
     sy = paddle.sqrt(
         x=rot_mats[:, (0), (0)] * rot_mats[:, (0), (0)]
         + rot_mats[:, (1), (0)] * rot_mats[:, (1), (0)]
@@ -119,6 +122,8 @@ def vertices2landmarks(vertices, faces, lmk_faces_idx, lmk_bary_coords):
     landmarks: torch.tensor BxLx3, dtype = torch.float32
         The coordinates of the landmarks for each mesh in the batch
     """
+    # Extract the indices of the vertices for each face
+    # BxLx3
     batch_size, num_verts = vertices.shape[:2]
     device = vertices.place
     lmk_faces = paddle.index_select(
@@ -182,15 +187,24 @@ def lbs(
         The joints of the model
     """
     batch_size = max(betas.shape[0], pose.shape[0])
-    device = betas.place
+    device = betas.device
+
+    # Add shape contribution
     v_shaped = v_template + blend_shapes(betas, shapedirs)
+
+    # Get the joints
+    # NxJx3 array
     J = vertices2joints(J_regressor, v_shaped)
+
+    # 3. Add pose blend shapes
+    # N x J x 3 x 3
     ident = paddle.eye(num_rows=3).astype(dtype)
     if pose2rot:
         rot_mats = batch_rodrigues(pose.reshape([-1, 3]), dtype=dtype).reshape(
             [batch_size, -1, 3, 3]
         )
         pose_feature = (rot_mats[:, 1:, :, :] - ident).reshape([batch_size, -1])
+        # (N x P) x (P, V * 3) -> N x V x 3
         pose_offsets = paddle.matmul(x=pose_feature, y=posedirs).reshape(
             [batch_size, -1, 3]
         )
@@ -201,8 +215,13 @@ def lbs(
             x=pose_feature.reshape([batch_size, -1]), y=posedirs
         ).reshape([batch_size, -1, 3])
     v_posed = pose_offsets + v_shaped
+    # 4. Get the global joint location
     J_transformed, A = batch_rigid_transform(rot_mats, J, parents, dtype=dtype)
+
+    # 5. Do skinning:
+    # W is N x V x (J + 1)
     W = lbs_weights.unsqueeze(axis=0).expand(shape=[batch_size, -1, -1])
+    # (N x V x (J + 1)) x (N x (J + 1) x 16)
     num_joints = J_regressor.shape[0]
     T = paddle.matmul(x=W, y=A.reshape([batch_size, num_joints, 16])).reshape(
         [batch_size, -1, 4, 4]
@@ -249,6 +268,9 @@ def blend_shapes(betas, shape_disps):
     torch.tensor BxVx3
         The per-vertex displacement due to shape deformation
     """
+    # Displacement[b, m, k] = sum_{l} betas[b, l] * shape_disps[m, k, l]
+    # i.e. Multiply each shape displacement by its corresponding beta and
+    # then sum them.
     blend_shape = paddle.einsum("bl,mkl->bmk", [betas, shape_disps])
     return blend_shape
 
@@ -291,6 +313,7 @@ def transform_mat(R, t):
     Returns:
         - T: Bx4x4 Transformation matrix
     """
+    # No padding left or right, only add an extra row
     return paddle.concat(
         x=[paddle_add.pad(R, [0, 0, 0, 1]), paddle_add.pad(t, [0, 0, 0, 1], value=1)],
         axis=2,
@@ -328,13 +351,16 @@ def batch_rigid_transform(rot_mats, joints, parents, dtype="float32"):
     ).reshape((-1, joints.shape[1], 4, 4))
     transform_chain = [transforms_mat[:, (0)]]
     for i in range(1, parents.shape[0]):
+        # Subtract the joint location at the rest pose
+        # No need for rotation, since it's identity when at rest
         curr_res = paddle.matmul(
             x=transform_chain[parents[i]], y=transforms_mat[:, (i)]
         )
         transform_chain.append(curr_res)
     transforms = paddle.stack(x=transform_chain, axis=1)
-    posed_joints = transforms[:, :, :3, (3)]
-    posed_joints = transforms[:, :, :3, (3)]
+    # The last column of the transformations contains the posed joints
+    posed_joints = transforms[:, :, :3, 3]
+
     joints_homogen = paddle_add.pad(joints, [0, 0, 0, 1])
     rel_transforms = transforms - paddle_add.pad(
         paddle.matmul(x=transforms, y=joints_homogen), [3, 0, 0, 0, 0, 0, 0, 0]

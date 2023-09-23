@@ -15,10 +15,10 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import paddle
 
-import utils.paddle_add
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from utils import paddle_add
 
 """
 Author: Soubhik Sanyal
@@ -270,6 +270,8 @@ class Up(paddle.nn.Layer):
 
     def __init__(self, in_channels, out_channels, bilinear=True):
         super().__init__()
+
+        # if bilinear, use the normal convolutions to reduce the number of channels
         if bilinear:
             self.up = paddle.nn.Upsample(
                 scale_factor=2, mode="bilinear", align_corners=True
@@ -285,6 +287,7 @@ class Up(paddle.nn.Layer):
 
     def forward(self, x1, x2):
         x1 = self.up(x1)
+        # input is CHW
         diffY = x2.shape[2] - x1.shape[2]
         diffX = x2.shape[3] - x1.shape[3]
         x1 = paddle_add.pad(

@@ -60,6 +60,8 @@ class AFLW2000(paddle.io.Dataset):
         old_size = (right - left + bottom - top) / 2
         center = np.array([right - (right - left) / 2.0, bottom - (bottom - top) / 2.0])
         size = int(old_size * self.scale)
+
+        # crop image
         src_pts = np.array(
             [
                 [center[0] - size / 2, center[1] - size / 2],

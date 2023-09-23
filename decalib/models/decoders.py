@@ -21,7 +21,7 @@ class Generator(paddle.nn.Layer):
     ):
         super(Generator, self).__init__()
         self.out_scale = out_scale
-        self.init_size = 32 // 4
+        self.init_size = 32 // 4  # Initial size before upsampling
         self.l1 = paddle.nn.Sequential(
             paddle.nn.Linear(
                 in_features=latent_dim, out_features=128 * self.init_size**2
@@ -29,31 +29,31 @@ class Generator(paddle.nn.Layer):
         )
         self.conv_blocks = paddle.nn.Sequential(
             paddle.nn.BatchNorm2D(num_features=128),
-            paddle.nn.Upsample(scale_factor=2, mode=sample_mode),
+            paddle.nn.Upsample(scale_factor=2, mode=sample_mode),  # 16
             paddle.nn.Conv2D(
                 in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1
             ),
             paddle.nn.BatchNorm2D(num_features=128, epsilon=0.8),
             paddle.nn.LeakyReLU(negative_slope=0.2),
-            paddle.nn.Upsample(scale_factor=2, mode=sample_mode),
+            paddle.nn.Upsample(scale_factor=2, mode=sample_mode),  # 32
             paddle.nn.Conv2D(
                 in_channels=128, out_channels=64, kernel_size=3, stride=1, padding=1
             ),
             paddle.nn.BatchNorm2D(num_features=64, epsilon=0.8),
             paddle.nn.LeakyReLU(negative_slope=0.2),
-            paddle.nn.Upsample(scale_factor=2, mode=sample_mode),
+            paddle.nn.Upsample(scale_factor=2, mode=sample_mode),  # 64
             paddle.nn.Conv2D(
                 in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1
             ),
             paddle.nn.BatchNorm2D(num_features=64, epsilon=0.8),
             paddle.nn.LeakyReLU(negative_slope=0.2),
-            paddle.nn.Upsample(scale_factor=2, mode=sample_mode),
+            paddle.nn.Upsample(scale_factor=2, mode=sample_mode),  # 128
             paddle.nn.Conv2D(
                 in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1
             ),
             paddle.nn.BatchNorm2D(num_features=32, epsilon=0.8),
             paddle.nn.LeakyReLU(negative_slope=0.2),
-            paddle.nn.Upsample(scale_factor=2, mode=sample_mode),
+            paddle.nn.Upsample(scale_factor=2, mode=sample_mode),  # 256
             paddle.nn.Conv2D(
                 in_channels=32, out_channels=16, kernel_size=3, stride=1, padding=1
             ),

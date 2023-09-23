@@ -29,8 +29,12 @@ cfg.device_id = "0"
 cfg.pretrained_modelpath = os.path.join(cfg.deca_dir, "data", "deca_model.tar")
 cfg.output_dir = ""
 cfg.rasterizer_type = "paddle3d"
+# ---------------------------------------------------------------------------- #
+# Options for Face model
+# ---------------------------------------------------------------------------- #
 cfg.model = CN()
 cfg.model.topology_path = os.path.join(cfg.deca_dir, "data", "head_template.obj")
+# texture data original from http://files.is.tue.mpg.de/tbolkart/FLAME/FLAME_texture_data.zip
 cfg.model.dense_template_path = os.path.join(
     cfg.deca_dir, "data", "texture_data_256.npy"
 )
@@ -47,7 +51,7 @@ cfg.model.face_eye_mask_path = os.path.join(
 )
 cfg.model.mean_tex_path = os.path.join(cfg.deca_dir, "data", "mean_texture.jpg")
 cfg.model.tex_path = os.path.join(cfg.deca_dir, "data", "FLAME_albedo_from_BFM.npz")
-cfg.model.tex_type = "BFM"
+cfg.model.tex_type = "BFM"  # BFM, FLAME, albedoMM
 cfg.model.uv_size = 256
 cfg.model.param_list = ["shape", "tex", "exp", "pose", "cam", "light"]
 cfg.model.n_shape = 100
@@ -57,10 +61,17 @@ cfg.model.n_cam = 3
 cfg.model.n_pose = 6
 cfg.model.n_light = 27
 cfg.model.use_tex = True
-cfg.model.jaw_type = "aa"
+cfg.model.jaw_type = "aa"  # default use axis angle, another option: euler. Note that: aa is not stable in the beginning
+# face recognition model
 cfg.model.fr_model_path = os.path.join(cfg.deca_dir, "data", "resnet50_ft_weight.pkl")
+
+# details
 cfg.model.n_detail = 128
 cfg.model.max_z = 0.01
+
+# ---------------------------------------------------------------------------- #
+# Options for Dataset
+# ---------------------------------------------------------------------------- #
 cfg.dataset = CN()
 cfg.dataset.training_data = ["vggface2", "ethnicity"]
 cfg.dataset.eval_data = ["aflw2000"]
@@ -73,6 +84,10 @@ cfg.dataset.image_size = 224
 cfg.dataset.scale_min = 1.4
 cfg.dataset.scale_max = 1.8
 cfg.dataset.trans_scale = 0.0
+
+# ---------------------------------------------------------------------------- #
+# Options for training
+# ---------------------------------------------------------------------------- #
 cfg.train = CN()
 cfg.train.train_detail = False
 cfg.train.max_epochs = 500
@@ -88,6 +103,10 @@ cfg.train.val_steps = 500
 cfg.train.val_vis_dir = "val_images"
 cfg.train.eval_steps = 5000
 cfg.train.resume = True
+
+# ---------------------------------------------------------------------------- #
+# Options for Losses
+# ---------------------------------------------------------------------------- #
 cfg.loss = CN()
 cfg.loss.lmk = 1.0
 cfg.loss.useWlmk = True
@@ -101,9 +120,10 @@ cfg.loss.reg_shape = 0.0001
 cfg.loss.reg_exp = 0.0001
 cfg.loss.reg_tex = 0.0001
 cfg.loss.reg_light = 1.0
-cfg.loss.reg_jaw_pose = 0.0
+cfg.loss.reg_jaw_pose = 0.0  # 1.
 cfg.loss.use_gender_prior = False
 cfg.loss.shape_consistency = True
+# loss for detail
 cfg.loss.detail_consistency = True
 cfg.loss.useConstraint = True
 cfg.loss.mrf = 0.05
@@ -115,6 +135,8 @@ cfg.loss.reg_diff = 0.005
 
 def get_cfg_defaults():
     """Get a yacs CfgNode object with default values for my_project."""
+    # Return a clone so that the defaults will not be altered
+    # This is for the "local variable" use pattern
     return cfg.clone()
 
 

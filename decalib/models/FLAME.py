@@ -55,10 +55,12 @@ class FLAME(paddle.nn.Layer):
             name="faces_tensor",
             tensor=to_tensor(to_np(flame_model.f, dtype=np.int64), dtype="int64"),
         )
+        # The vertices of the template model
         self.register_buffer(
             name="v_template",
             tensor=to_tensor(to_np(flame_model.v_template), dtype=self.dtype),
         )
+        # The shape components and expression
         shapedirs = to_tensor(to_np(flame_model.shapedirs), dtype=self.dtype)
         shapedirs = paddle.concat(
             x=[
@@ -68,6 +70,7 @@ class FLAME(paddle.nn.Layer):
             axis=2,
         )
         self.register_buffer(name="shapedirs", tensor=shapedirs)
+        # The pose components
         num_pose_basis = flame_model.posedirs.shape[-1]
         posedirs = np.reshape(flame_model.posedirs, [-1, num_pose_basis]).T
         self.register_buffer(
@@ -84,26 +87,29 @@ class FLAME(paddle.nn.Layer):
             name="lbs_weights",
             tensor=to_tensor(to_np(flame_model.weights), dtype=self.dtype),
         )
+        # Fixing Eyeball and neck rotation
         out_0 = paddle.zeros(shape=[1, 6], dtype=self.dtype)
-        out_0.stop_gradient = not False
+        out_0.stop_gradient = True
         default_eyball_pose = out_0
         out_1 = paddle.create_parameter(
             shape=default_eyball_pose.shape,
             dtype=default_eyball_pose.numpy().dtype,
             default_initializer=paddle.nn.initializer.Assign(default_eyball_pose),
         )
-        out_1.stop_gradient = not False
+        out_1.stop_gradient = True
         self.add_parameter(name="eye_pose", parameter=out_1)
         out_2 = paddle.zeros(shape=[1, 3], dtype=self.dtype)
-        out_2.stop_gradient = not False
+        out_2.stop_gradient = True
         default_neck_pose = out_2
         out_3 = paddle.create_parameter(
             shape=default_neck_pose.shape,
             dtype=default_neck_pose.numpy().dtype,
             default_initializer=paddle.nn.initializer.Assign(default_neck_pose),
         )
-        out_3.stop_gradient = not False
+        out_3.stop_gradient = True
         self.add_parameter(name="neck_pose", parameter=out_3)
+
+        # Static and Dynamic Landmark embeddings for FLAME
         lmk_embeddings = np.load(
             config.flame_lmk_embedding_path, allow_pickle=True, encoding="latin1"
         )
@@ -223,6 +229,8 @@ class FLAME(paddle.nn.Layer):
             landmarks: torch.tensor NxLx3, dtype = torch.float32
                 The coordinates of the landmarks for each mesh in the batch
         """
+        # Extract the indices of the vertices for each face
+        # NxLx3
         batch_size, num_verts = vertices.shape[:dd2]
         lmk_faces = (
             paddle.index_select(x=faces, axis=0, index=lmk_faces_idx.view(-1))
@@ -346,7 +354,7 @@ class FLAMETex(paddle.nn.Layer):
             mu_key = "mean"
             pc_key = "tex_dir"
             n_pc = 200
-            tex_path = config.tex_path
+            tex_path = config.tex_path  # config.flame_tex_path
             tex_space = np.load(tex_path)
             texture_mean = tex_space[mu_key].reshape((1, -1)) / 255.0
             texture_basis = tex_space[pc_key].reshape((-1, n_pc)) / 255.0

@@ -36,7 +36,7 @@ def video2sequence(video_path, sample_step=10):
     imagepath_list = []
     while success:
         imagepath = os.path.join(videofolder, f"{video_name}_frame{count:04d}.jpg")
-        cv2.imwrite(imagepath, image)
+        cv2.imwrite(imagepath, image)  # save frame as JPEG file
         success, image = vidcap.read()
         count += 1
         imagepath_list.append(imagepath)
@@ -166,6 +166,7 @@ class TestData(paddle.io.Dataset):
             image = image[:, :, :3]
         h, w, _ = image.shape
         if self.iscrop:
+            # provide kpt as txt file, or mat file (for AFLW2000)
             kpt_matpath = os.path.splitext(imagepath)[0] + ".mat"
             kpt_txtpath = os.path.splitext(imagepath)[0] + ".txt"
             if os.path.exists(kpt_matpath):

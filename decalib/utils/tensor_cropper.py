@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import paddle
 import kornia
+import paddle
 
 """
 crop
@@ -36,6 +36,7 @@ def points2bbox(points, points_scale=None):
     center = paddle.stack(x=[xmax + xmin, ymax + ymin], axis=-1) * 0.5
     width = xmax - xmin
     height = ymax - ymin
+    # Convert the bounding box to a square box
     size = paddle.maximum(x=width, y=height).unsqueeze(axis=-1)
     return center, size
 
@@ -67,6 +68,7 @@ def crop_tensor(
     """
     dtype = image.dtype
     device = image.place
+    # points: top-left, top-right, bottom-right, bottom-left
     batch_size = image.shape[0]
     src_pts = (
         paddle.zeros(shape=[4, 2], dtype=dtype)
@@ -91,9 +93,14 @@ def crop_tensor(
         dtype=dtype,
         place=device,
     ).expand(shape=[batch_size, -1, -1])
+    # estimate transformation between points
     dst_trans_src = kornia.geometry.transform.imgwarp.get_perspective_transform(
         src_pts, DST_PTS
     )
+    # simulate broadcasting
+    # dst_trans_src = dst_trans_src.expand(batch_size, -1, -1)
+
+    # warp images
     cropped_image = kornia.geometry.transform.imgwarp.warp_affine(
         image,
         dst_trans_src[:, :2, :],
@@ -116,15 +123,20 @@ class Cropper(object):
         self.trans_scale = trans_scale
 
     def crop(self, image, points, points_scale=None):
+        # points to bbox
         center, bbox_size = points2bbox(points.clone(), points_scale)
+        # argument bbox. TODO: add rotation?
         center, bbox_size = augment_bbox(
             center, bbox_size, scale=self.scale, trans_scale=self.trans_scale
         )
+        # crop
         cropped_image, tform = crop_tensor(image, center, bbox_size, self.crop_size)
         return cropped_image, tform
 
     def transform_points(self, points, tform, points_scale=None, normalize=True):
         points_2d = points[:, :, :2]
+
+        #'input points must use original range'
         if points_scale:
             assert points_scale[0] == points_scale[1]
             points_2d = (points_2d * 0.5 + 0.5) * points_scale[0]
