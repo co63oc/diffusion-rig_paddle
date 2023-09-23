@@ -21,6 +21,8 @@ import pickle
 from glob import glob
 
 import paddle
+import torch
+import torchvision
 
 from decalib.datasets import datasets as deca_dataset
 from decalib.deca import DECA
@@ -132,6 +134,9 @@ def main():
     )
     os.system("mkdir -p " + args.output_dir)
     noise = paddle.randn(shape=[1, 3, args.image_size, args.image_size]).to("cuda")
+
+    vis_dir = args.output_dir
+    idx = 0
     for batch in data:
         image = batch["image"]
         image2 = batch["image2"]
@@ -153,9 +158,9 @@ def main():
         )
         sample = (sample + 1) / 2.0
         sample = sample
-        # paddle.vision.utils.save_image(sample, os.path.join(vis_dir, '{}_'.
-        #     format(idx) + batch['mode']) + '.png')
-        # idx += 1
+        torchvision.utils.save_image(torch.tensor(sample.numpy()), os.path.join(vis_dir, '{}_'.
+            format(idx) + batch['mode']) + '.png')
+        idx += 1
 
 
 def create_argparser():

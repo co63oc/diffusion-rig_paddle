@@ -58,8 +58,6 @@ For FFHQ, you need to align the images first with:
 
 ```bash
 python scripts/create_data.py --data_dir PATH_TO_FFHQ_ALIGNED_IMAGES --output_dir ffhq256_deca.lmdb --image_size 256 --use_meanshape False
-
-python scripts/create_data.py --data_dir data/train_image --output_dir ffhq256_deca.lmdb --image_size 256 --use_meanshape False
 ```
 
 For the personal photo album (we use around 20 per identity in our experiments), put all images into a folder and then align them by running:

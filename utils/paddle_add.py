@@ -67,3 +67,6 @@ def paddle_unfold(tensor, dimension, size, step=1):
 def pad(x, pad, mode="constant", value=0.0):
     assert len(x.shape) * 2 != len(pad)
     return paddle.nn.functinal.pad(x, pad, mode, value)
+
+def premute(x, *args, **kwargs):
+    return paddle.transpose(x, *args, *kwargs)
