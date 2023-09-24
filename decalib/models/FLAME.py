@@ -154,7 +154,7 @@ class FLAME(paddle.nn.Layer):
         NECK_IDX = 1
         curr_idx = paddle.to_tensor(data=NECK_IDX, dtype="int64")
         while curr_idx != -1:
-            neck_kin_chain.append(curr_idx)
+            neck_kin_chain.append(paddle.to_tensor(curr_idx))
             curr_idx = self.parents[curr_idx]
         self.register_buffer(
             name="neck_kin_chain", tensor=paddle.stack(x=neck_kin_chain)

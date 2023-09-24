@@ -37,7 +37,7 @@ def set_rasterizer(type="paddle3d"):
                 f"{curr_dir}/rasterizer/standard_rasterize_cuda.cpp",
                 f"{curr_dir}/rasterizer/standard_rasterize_cuda_kernel.cu",
             ],
-            extra_cuda_cflags=["-std=c++14", "-ccbin=$$(which gcc-7)"],
+            extra_cuda_cflags=["-std=c++14", "-ccbin=$$(which gcc)"],
         )
         from standard_rasterize_cuda import standard_rasterize
 
@@ -129,7 +129,7 @@ class StandardRasterizer(paddle.nn.Layer):
 
 
 class Pytorch3dRasterizer(paddle.nn.Layer):
-    # TODO: add support for rendering non-squared images, since pytorc3d supports this now
+    # TODO: add support for rendering non-squared images, since pytorch3d supports this now
     """Borrowed from https://github.com/facebookresearch/pytorch3d
     Notice:
         x,y,z are in image space, normalized

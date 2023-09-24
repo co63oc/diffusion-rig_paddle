@@ -26,7 +26,8 @@ abs_deca_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 cfg.deca_dir = abs_deca_dir
 cfg.place = "cuda"
 cfg.device_id = "0"
-cfg.pretrained_modelpath = os.path.join(cfg.deca_dir, "data", "deca_model.tar")
+# modify to paddle
+cfg.pretrained_modelpath = os.path.join(cfg.deca_dir, "data", "paddle_deca_model.tar")
 cfg.output_dir = ""
 cfg.rasterizer_type = "paddle3d"
 # ---------------------------------------------------------------------------- #
@@ -42,8 +43,9 @@ cfg.model.fixed_displacement_path = os.path.join(
     cfg.deca_dir, "data", "fixed_displacement_256.npy"
 )
 cfg.model.flame_model_path = os.path.join(cfg.deca_dir, "data", "generic_model.pkl")
+# modify to paddle
 cfg.model.flame_lmk_embedding_path = os.path.join(
-    cfg.deca_dir, "data", "landmark_embedding.npy"
+    cfg.deca_dir, "data", "paddle_landmark_embedding.npy"
 )
 cfg.model.face_mask_path = os.path.join(cfg.deca_dir, "data", "uv_face_mask.png")
 cfg.model.face_eye_mask_path = os.path.join(

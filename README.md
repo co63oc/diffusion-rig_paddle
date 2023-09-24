@@ -18,7 +18,7 @@ conda create -n diffusionrig python=3.8
 conda activate diffusionrig
 conda install paddlepaddle-gpu
 conda install mpi4py dlib scikit-learn scikit-image tqdm -c conda-forge
-pip install lmdb opencv-python kornia yacs blobfile chumpy face_alignment
+pip install lmdb opencv-python kornia yacs blobfile chumpy face_alignment==1.2.0
 ```
 
 You need to also install [pytorch3d](https://github.com/facebookresearch/pytorch3d) to render the physical buffers:
@@ -96,7 +96,7 @@ Finetune the model on your tiny personal album:
 ```bash
 mpiexec -n 1 python scripts/train.py --latent_dim 64 --encoder_type resnet18 \
     --log_dir log/stage2 --resume_checkpoint log/stage1/[MODEL_NAME].pt \
-    --data_dir peronsal_deca.lmdb --lr 1e-5 \
+    --data_dir personal_deca.lmdb --lr 1e-5 \
     --p2_weight True --image_size 256 --batch_size 4 --max_steps 5000 \
     --num_workers 8 --save_interval 5000 --stage 2
 ```
