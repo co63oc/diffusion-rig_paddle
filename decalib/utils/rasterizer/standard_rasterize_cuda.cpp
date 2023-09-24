@@ -16,39 +16,39 @@
 #include <vector>
 #include <iostream>
 
-std::vector<at::Tensor> forward_rasterize_cuda(
-        at::Tensor face_vertices,
-        at::Tensor depth_buffer,
-        at::Tensor triangle_buffer,
-        at::Tensor baryw_buffer,
+std::vector<paddle::Tensor> forward_rasterize_cuda(
+        paddle::Tensor face_vertices,
+        paddle::Tensor depth_buffer,
+        paddle::Tensor triangle_buffer,
+        paddle::Tensor baryw_buffer,
         int h,
         int w);
 
-std::vector<at::Tensor> standard_rasterize(
-        at::Tensor face_vertices,
-        at::Tensor depth_buffer,
-        at::Tensor triangle_buffer,
-        at::Tensor baryw_buffer,
+std::vector<paddle::Tensor> standard_rasterize(
+        paddle::Tensor face_vertices,
+        paddle::Tensor depth_buffer,
+        paddle::Tensor triangle_buffer,
+        paddle::Tensor baryw_buffer,
         int height, int width
         ) {
     return forward_rasterize_cuda(face_vertices, depth_buffer, triangle_buffer, baryw_buffer, height, width);
 }
 
-std::vector<at::Tensor> forward_rasterize_colors_cuda(
-        at::Tensor face_vertices,
-        at::Tensor face_colors,
-        at::Tensor depth_buffer,
-        at::Tensor triangle_buffer,
-        at::Tensor images,
+std::vector<paddle::Tensor> forward_rasterize_colors_cuda(
+        paddle::Tensor face_vertices,
+        paddle::Tensor face_colors,
+        paddle::Tensor depth_buffer,
+        paddle::Tensor triangle_buffer,
+        paddle::Tensor images,
         int h,
         int w);
 
-std::vector<at::Tensor> standard_rasterize_colors(
-        at::Tensor face_vertices,
-        at::Tensor face_colors,
-        at::Tensor depth_buffer,
-        at::Tensor triangle_buffer,
-        at::Tensor images,
+std::vector<paddle::Tensor> standard_rasterize_colors(
+        paddle::Tensor face_vertices,
+        paddle::Tensor face_colors,
+        paddle::Tensor depth_buffer,
+        paddle::Tensor triangle_buffer,
+        paddle::Tensor images,
         int height, int width
         ) {
     return forward_rasterize_colors_cuda(face_vertices, face_colors, depth_buffer, triangle_buffer, images, height, width);

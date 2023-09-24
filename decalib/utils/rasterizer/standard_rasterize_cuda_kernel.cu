@@ -1,7 +1,7 @@
 // Ref: https://github.com/daniilidis-group/neural_renderer/blob/master/neural_renderer/cuda/rasterize_cuda_kernel.cu
 // https://github.com/YadiraF/face3d/blob/master/face3d/mesh/cython/mesh_core.cpp
 
-#include <ATen/ATen.h>
+#include "paddle/extension.h"
 
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -226,22 +226,22 @@ __global__ void forward_rasterize_colors_cuda_kernel(
     
 }
 
-std::vector<at::Tensor> forward_rasterize_cuda(
-    at::Tensor face_vertices,
-    at::Tensor depth_buffer,
-    at::Tensor triangle_buffer,
-    at::Tensor baryw_buffer,
+std::vector<paddle::Tensor> forward_rasterize_cuda(
+    paddle::Tensor face_vertices,
+    paddle::Tensor depth_buffer,
+    paddle::Tensor triangle_buffer,
+    paddle::Tensor baryw_buffer,
     int h,
     int w){
 
-    const auto batch_size = face_vertices.size(0);
-    const auto ntri = face_vertices.size(1);
+    const auto batch_size = face_vertices.shape()[0];
+    const auto ntri = face_vertices.shape()[1];
 
     // print(channel_size)
     const int threads = 512;
     const dim3 blocks_1 ((batch_size * ntri - 1) / threads +1);
 
-    AT_DISPATCH_FLOATING_TYPES(face_vertices.type(), "forward_rasterize_cuda1", ([&] {
+    PD_DISPATCH_FLOATING_TYPES(face_vertices.type(), "forward_rasterize_cuda1", ([&] {
       forward_rasterize_cuda_kernel<scalar_t><<<blocks_1, threads>>>(
         face_vertices.data<scalar_t>(),
         depth_buffer.data<scalar_t>(),
@@ -252,7 +252,7 @@ std::vector<at::Tensor> forward_rasterize_cuda(
       }));
 
     // better to do it twice  (or there will be balck spots in the rendering)
-    AT_DISPATCH_FLOATING_TYPES(face_vertices.type(), "forward_rasterize_cuda2", ([&] {
+    PD_DISPATCH_FLOATING_TYPES(face_vertices.type(), "forward_rasterize_cuda2", ([&] {
         forward_rasterize_cuda_kernel<scalar_t><<<blocks_1, threads>>>(
         face_vertices.data<scalar_t>(),
         depth_buffer.data<scalar_t>(),
@@ -269,12 +269,12 @@ std::vector<at::Tensor> forward_rasterize_cuda(
 }
 
 
-std::vector<at::Tensor> forward_rasterize_colors_cuda(
-    at::Tensor face_vertices,
-    at::Tensor face_colors,
-    at::Tensor depth_buffer,
-    at::Tensor triangle_buffer,
-    at::Tensor images,
+std::vector<paddle::Tensor> forward_rasterize_colors_cuda(
+    paddle::Tensor face_vertices,
+    paddle::Tensor face_colors,
+    paddle::Tensor depth_buffer,
+    paddle::Tensor triangle_buffer,
+    paddle::Tensor images,
     int h,
     int w){
 
@@ -286,7 +286,7 @@ std::vector<at::Tensor> forward_rasterize_colors_cuda(
     const dim3 blocks_1 ((batch_size * ntri - 1) / threads +1);
     //initial 
 
-    AT_DISPATCH_FLOATING_TYPES(face_vertices.type(), "forward_rasterize_colors_cuda", ([&] {
+    PD_DISPATCH_FLOATING_TYPES(face_vertices.type(), "forward_rasterize_colors_cuda", ([&] {
       forward_rasterize_colors_cuda_kernel<scalar_t><<<blocks_1, threads>>>(
         face_vertices.data<scalar_t>(),
         face_colors.data<scalar_t>(),

@@ -14,16 +14,21 @@
 
 import numpy as np
 import paddle
-
+import os, sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+# utils.paddle3d is converted from pytorch3d
+from utils import paddle3d as utils3d
 from . import util
 
 
 def set_rasterizer(type="paddle3d"):
+    # set to standard
+    type = "standard"
     if type == "paddle3d":
         global Meshes, load_obj, rasterize_meshes
-        from paddle3d.io import load_obj
-        from paddle3d.renderer.mesh import rasterize_meshes
-        from paddle3d.structures import Meshes
+        from utils3d.io import load_obj
+        from utils3d.renderer.mesh import rasterize_meshes
+        from utils3d.structures import Meshes
     elif type == "standard":
         global standard_rasterize, load_obj
         import os
