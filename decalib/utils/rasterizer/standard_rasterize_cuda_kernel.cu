@@ -242,22 +242,22 @@ std::vector<paddle::Tensor> forward_rasterize_cuda(
     const dim3 blocks_1 ((batch_size * ntri - 1) / threads +1);
 
     PD_DISPATCH_FLOATING_TYPES(face_vertices.type(), "forward_rasterize_cuda1", ([&] {
-      forward_rasterize_cuda_kernel<scalar_t><<<blocks_1, threads>>>(
-        face_vertices.data<scalar_t>(),
-        depth_buffer.data<scalar_t>(),
+      forward_rasterize_cuda_kernel<data_t><<<blocks_1, threads>>>(
+        face_vertices.data<data_t>(),
+        depth_buffer.data<data_t>(),
         triangle_buffer.data<int>(),
-        baryw_buffer.data<scalar_t>(),
+        baryw_buffer.data<data_t>(),
         batch_size, h, w,
         ntri);
       }));
 
     // better to do it twice  (or there will be balck spots in the rendering)
     PD_DISPATCH_FLOATING_TYPES(face_vertices.type(), "forward_rasterize_cuda2", ([&] {
-        forward_rasterize_cuda_kernel<scalar_t><<<blocks_1, threads>>>(
-        face_vertices.data<scalar_t>(),
-        depth_buffer.data<scalar_t>(),
+        forward_rasterize_cuda_kernel<data_t><<<blocks_1, threads>>>(
+        face_vertices.data<data_t>(),
+        depth_buffer.data<data_t>(),
         triangle_buffer.data<int>(),
-        baryw_buffer.data<scalar_t>(),
+        baryw_buffer.data<data_t>(),
         batch_size, h, w,
         ntri);
         }));
@@ -278,8 +278,8 @@ std::vector<paddle::Tensor> forward_rasterize_colors_cuda(
     int h,
     int w){
 
-    const auto batch_size = face_vertices.size(0);
-    const auto ntri = face_vertices.size(1);
+    const auto batch_size = face_vertices.shape()[0];
+    const auto ntri = face_vertices.shape()[1];
 
     // print(channel_size)
     const int threads = 512;
@@ -287,23 +287,23 @@ std::vector<paddle::Tensor> forward_rasterize_colors_cuda(
     //initial 
 
     PD_DISPATCH_FLOATING_TYPES(face_vertices.type(), "forward_rasterize_colors_cuda", ([&] {
-      forward_rasterize_colors_cuda_kernel<scalar_t><<<blocks_1, threads>>>(
-        face_vertices.data<scalar_t>(),
-        face_colors.data<scalar_t>(),
-        depth_buffer.data<scalar_t>(),
+      forward_rasterize_colors_cuda_kernel<data_t><<<blocks_1, threads>>>(
+        face_vertices.data<data_t>(),
+        face_colors.data<data_t>(),
+        depth_buffer.data<data_t>(),
         triangle_buffer.data<int>(),
-        images.data<scalar_t>(),
+        images.data<data_t>(),
         batch_size, h, w,
         ntri);
       }));
     // better to do it twice 
     // AT_DISPATCH_FLOATING_TYPES(face_vertices.type(), "forward_rasterize_colors_cuda", ([&] {
-    //     forward_rasterize_colors_cuda_kernel<scalar_t><<<blocks_1, threads>>>(
-    //       face_vertices.data<scalar_t>(),
-    //       face_colors.data<scalar_t>(),
-    //       depth_buffer.data<scalar_t>(),
+    //     forward_rasterize_colors_cuda_kernel<data_t><<<blocks_1, threads>>>(
+    //       face_vertices.data<data_t>(),
+    //       face_colors.data<data_t>(),
+    //       depth_buffer.data<data_t>(),
     //       triangle_buffer.data<int>(),
-    //       images.data<scalar_t>(),
+    //       images.data<data_t>(),
     //       batch_size, h, w,
     //       ntri);
     //     }));
