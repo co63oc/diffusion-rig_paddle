@@ -17,10 +17,10 @@ import numpy as np
 
 class FAN(object):
     def __init__(self):
-        import face_alignment
+        import face_alignment_paddle
 
-        self.model = face_alignment.FaceAlignment(
-            face_alignment.LandmarksType._2D, flip_input=False
+        self.model = face_alignment_paddle.FaceAlignment(
+            face_alignment_paddle.LandmarksType._2D, flip_input=False
         )
 
     def run(self, image):

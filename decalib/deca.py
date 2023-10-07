@@ -56,7 +56,7 @@ class DECA(paddle.nn.Layer):
             uv_size=model_cfg.uv_size,
             rasterizer_type=self.cfg.rasterizer_type,
         )
-        self.render = paddle.to_tensor(self.render, place=self.place)
+        self.render = self.render.to(device=self.place)
         # face mask for rendering details
         mask = imread(model_cfg.face_eye_mask_path).astype(np.float32) / 255.0
         mask = paddle.to_tensor(data=mask[:, :, (0)])[(None), (None), :, :]

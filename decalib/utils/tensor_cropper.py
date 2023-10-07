@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import kornia
+# import kornia
 import paddle
 
 """
@@ -49,7 +49,8 @@ def augment_bbox(center, bbox_size, scale=[1.0, 1.0], trans_scale=0.0):
     size = bbox_size * scale
     return center, size
 
-
+'''
+TODO kornia convert
 def crop_tensor(
     image, center, bbox_size, crop_size, interpolation="bilinear", align_corners=False
 ):
@@ -114,7 +115,7 @@ def crop_tensor(
     perm_1[1] = 2
     tform = paddle.transpose(x=x, perm=perm_1)
     return cropped_image, tform
-
+'''
 
 class Cropper(object):
     def __init__(self, crop_size, scale=[1, 1], trans_scale=0.0):
