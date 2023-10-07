@@ -243,7 +243,7 @@ def face_vertices(vertices, faces):
     device = vertices.place
     faces = (
         faces
-        + (paddle.arange(end=bs).astype("int32").to(device) * nv)[:, (None), (None)]
+        + (paddle.to_tensor(paddle.arange(end=bs).astype("int32"), place=device) * nv)[:, (None), (None)]
     )
     vertices = vertices.reshape((bs * nv, 3))
     # pytorch only supports long and byte tensors for indexing

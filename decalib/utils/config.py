@@ -29,7 +29,7 @@ cfg.device_id = "0"
 # modify to paddle
 cfg.pretrained_modelpath = os.path.join(cfg.deca_dir, "data", "paddle_deca_model.tar")
 cfg.output_dir = ""
-cfg.rasterizer_type = "paddle3d"
+cfg.rasterizer_type = "standard"
 # ---------------------------------------------------------------------------- #
 # Options for Face model
 # ---------------------------------------------------------------------------- #

@@ -42,7 +42,7 @@ def set_rasterizer(type="paddle3d"):
                 f"{curr_dir}/rasterizer/standard_rasterize_cuda.cpp",
                 f"{curr_dir}/rasterizer/standard_rasterize_cuda_kernel.cu",
             ],
-            extra_cuda_cflags=["-std=c++14", "-ccbin=$$(which gcc)"],
+            extra_cuda_cflags=["-std=c++14", "-ccbin=/usr/bin/gcc"],
         )
         from standard_rasterize_cuda import standard_rasterize
 
@@ -214,7 +214,7 @@ class Pytorch3dRasterizer(paddle.nn.Layer):
 
 class SRenderY(paddle.nn.Layer):
     def __init__(
-        self, image_size, obj_filename, uv_size=256, rasterizer_type="pytorch3d"
+        self, image_size, obj_filename, uv_size=256, rasterizer_type="standard"
     ):
         super(SRenderY, self).__init__()
         self.image_size = image_size

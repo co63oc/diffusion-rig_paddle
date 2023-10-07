@@ -575,6 +575,8 @@ class VGG_16(paddle.nn.Layer):
             path: path for the luatorch pretrained
         """
         model = torchfile.load(path)
+        print(model)
+        exit()
         counter = 1
         block = 1
         for i, layer in enumerate(model.modules):
