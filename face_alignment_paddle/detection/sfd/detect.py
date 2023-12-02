@@ -1,19 +1,33 @@
-import paddle
-import paddle.nn.functional as F
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#     http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-import os
-import sys
-import cv2
-import random
+import argparse
 import datetime
 import math
-import argparse
-import numpy as np
-
-import scipy.io as sio
+import os
+import random
+import sys
 import zipfile
-from .net_s3fd import s3fd
+
+import cv2
+import numpy as np
+import paddle
+import paddle.nn.functional as F
+import scipy.io as sio
+
 from .bbox import *
+from .net_s3fd import s3fd
 
 
 def detect(net, img, device):
@@ -53,14 +67,16 @@ def batch_detect(net, img_batch, device):
         for i in range(len(olist) // 2):
             ocls, oreg = olist[i * 2], olist[i * 2 + 1]
             FB, FC, FH, FW = ocls.shape  # feature map size
-            stride = 2**(i + 2)    # 4,8,16,32,64,128
+            stride = 2 ** (i + 2)  # 4,8,16,32,64,128
             anchor = stride * 4
             poss = zip(*np.where(ocls[:, 1, :, :] > 0.05))
             for Iindex, hindex, windex in poss:
                 axc, ayc = stride / 2 + windex * stride, stride / 2 + hindex * stride
                 score = ocls[j, 1, hindex, windex]
                 loc = oreg[j, :, hindex, windex].reshape((1, 4))
-                priors = paddle.to_tensor([[axc / 1.0, ayc / 1.0, stride * 4 / 1.0, stride * 4 / 1.0]])
+                priors = paddle.to_tensor(
+                    [[axc / 1.0, ayc / 1.0, stride * 4 / 1.0, stride * 4 / 1.0]]
+                )
                 variances = [0.1, 0.2]
                 box = decode(loc, priors, variances)
                 x1, y1, x2, y2 = box[0] * 1.0

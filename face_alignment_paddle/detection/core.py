@@ -1,10 +1,25 @@
-import logging
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#     http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import glob
-from tqdm import tqdm
+import logging
+
+import cv2
 import numpy as np
 import paddle
-import cv2
 from skimage import io
+from tqdm import tqdm
 
 
 class FaceDetector(object):
@@ -21,13 +36,17 @@ class FaceDetector(object):
         self.verbose = verbose
 
         if verbose:
-            if 'cpu' in device:
+            if "cpu" in device:
                 logger = logging.getLogger(__name__)
-                logger.warning("Detection running on CPU, this may be potentially slow.")
+                logger.warning(
+                    "Detection running on CPU, this may be potentially slow."
+                )
 
-        if 'cpu' not in device and 'cuda' not in device:
+        if "cpu" not in device and "cuda" not in device:
             if verbose:
-                logger.error("Expected values for device are: {cpu, cuda} but got: %s", device)
+                logger.error(
+                    "Expected values for device are: {cpu, cuda} but got: %s", device
+                )
             raise ValueError
 
     def detect_from_image(self, tensor_or_path):
@@ -73,7 +92,9 @@ class FaceDetector(object):
         """
         raise NotImplementedError
 
-    def detect_from_directory(self, path, extensions=['.jpg', '.png'], recursive=False, show_progress_bar=True):
+    def detect_from_directory(
+        self, path, extensions=[".jpg", ".png"], recursive=False, show_progress_bar=True
+    ):
         """Detects faces from all the images present in a given directory.
 
         Arguments:
@@ -102,10 +123,12 @@ class FaceDetector(object):
 
         if self.verbose:
             logger.info("Constructing the list of images.")
-        additional_pattern = '/**/*' if recursive else '/*'
+        additional_pattern = "/**/*" if recursive else "/*"
         files = []
         for extension in extensions:
-            files.extend(glob.glob(path + additional_pattern + extension, recursive=recursive))
+            files.extend(
+                glob.glob(path + additional_pattern + extension, recursive=recursive)
+            )
 
         if self.verbose:
             logger.info("Finished searching for images. %s images found", len(files))
@@ -118,7 +141,9 @@ class FaceDetector(object):
             predictions[image_path] = self.detect_from_image(image_path)
 
         if self.verbose:
-            logger.info("The detector was successfully run on all %s images", len(files))
+            logger.info(
+                "The detector was successfully run on all %s images", len(files)
+            )
 
         return predictions
 
@@ -145,7 +170,11 @@ class FaceDetector(object):
             return cv2.imread(tensor_or_path) if not rgb else io.imread(tensor_or_path)
         elif isinstance(tensor_or_path, paddle.Tensor):
             # Call cpu in case its coming from cuda
-            return tensor_or_path.cpu().numpy()[..., ::-1].copy() if not rgb else tensor_or_path.cpu().numpy()
+            return (
+                tensor_or_path.cpu().numpy()[..., ::-1].copy()
+                if not rgb
+                else tensor_or_path.cpu().numpy()
+            )
         elif isinstance(tensor_or_path, np.ndarray):
             return tensor_or_path[..., ::-1].copy() if not rgb else tensor_or_path
         else:

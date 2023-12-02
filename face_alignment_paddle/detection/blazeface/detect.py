@@ -1,8 +1,21 @@
-import paddle
-import paddle.nn.functional as F
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#     http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import cv2
 import numpy as np
+import paddle
+import paddle.nn.functional as F
 
 from .utils import *
 
@@ -21,7 +34,9 @@ def detect(net, img, device):
 
     # TODO: ugly
     # reverses, x and y to adapt with face-alignment code
-    locs = np.concatenate((preds[:, 1:2], preds[:, 0:1], preds[:, 3:4], preds[:, 2:3]), axis=1)
+    locs = np.concatenate(
+        (preds[:, 1:2], preds[:, 0:1], preds[:, 3:4], preds[:, 2:3]), axis=1
+    )
     return [np.concatenate((locs * orig_size + shift, scores), axis=1)]
 
 
@@ -45,7 +60,9 @@ def batch_detect(net, img_batch, device):
     for pred in preds:
         shift = np.array([xshift, yshift] * 2)
         scores = pred[:, -1:]
-        locs = np.concatenate((pred[:, 1:2], pred[:, 0:1], pred[:, 3:4], pred[:, 2:3]), axis=1)
+        locs = np.concatenate(
+            (pred[:, 1:2], pred[:, 0:1], pred[:, 3:4], pred[:, 2:3]), axis=1
+        )
         bboxlists.append(np.concatenate((locs * orig_size + shift, scores), axis=1))
 
     return bboxlists

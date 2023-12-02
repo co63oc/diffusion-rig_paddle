@@ -1,18 +1,35 @@
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#     http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import paddle
 # from paddle.utils.model_zoo import load_url
 from paddle.utils.download import get_weights_path_from_url
+
+
 def load_url(url):
     cache_file = get_weights_path_from_url(url)
     return paddle.load(cache_file)
-from ..core import FaceDetector
 
-from .net_s3fd import s3fd
+
+from ..core import FaceDetector
 from .bbox import nms
-from .detect import detect, batch_detect
+from .detect import batch_detect, detect
+from .net_s3fd import s3fd
 
 models_urls = {
     # 's3fd': 'https://www.adrianbulat.com/downloads/python-fan/s3fd-619a316812.pth',
-    's3fd': 'https://test1model.oss-cn-beijing.aliyuncs.com/diffusion-rig/paddle_s3fd-619a316812.pth',
+    "s3fd": "https://test1model.oss-cn-beijing.aliyuncs.com/diffusion-rig/paddle_s3fd-619a316812.pth",
 }
 
 
@@ -22,7 +39,7 @@ class SFDDetector(FaceDetector):
 
         # Initialise the face detector
         if path_to_detector is None:
-            model_weights = load_url(models_urls['s3fd'])
+            model_weights = load_url(models_urls["s3fd"])
         else:
             model_weights = paddle.load(path_to_detector)
 

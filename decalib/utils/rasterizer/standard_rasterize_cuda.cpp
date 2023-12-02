@@ -54,7 +54,7 @@ std::vector<paddle::Tensor> standard_rasterize_colors(
     return forward_rasterize_colors_cuda(face_vertices, face_colors, depth_buffer, triangle_buffer, images, height, width);
 }
 
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+PYBIND11_MODULE(standard_rasterize_cuda, m) {
     m.def("standard_rasterize", &standard_rasterize, "RASTERIZE (CUDA)");
     m.def("standard_rasterize_colors", &standard_rasterize_colors, "RASTERIZE COLORS (CUDA)");
 }

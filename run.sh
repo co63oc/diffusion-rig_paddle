@@ -1,5 +1,7 @@
-pip install lmdb opencv-python kornia yacs blobfile chumpy face_alignment==1.2.0
+pip install face_alignment==1.2.0
 pip install Pillow==9.5.0
+pip install numpy==1.23.1
+pip install lmdb opencv-python kornia yacs blobfile chumpy
 
 https://www.adrianbulat.com/downloads/python-fan/s3fd-619a316812.pth
 /root/.cache/torch/hub/checkpoints/s3fd-619a316812.pth

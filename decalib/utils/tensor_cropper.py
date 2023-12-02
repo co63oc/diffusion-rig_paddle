@@ -49,6 +49,7 @@ def augment_bbox(center, bbox_size, scale=[1.0, 1.0], trans_scale=0.0):
     size = bbox_size * scale
     return center, size
 
+
 '''
 TODO kornia convert
 def crop_tensor(
@@ -116,6 +117,7 @@ def crop_tensor(
     tform = paddle.transpose(x=x, perm=perm_1)
     return cropped_image, tform
 '''
+
 
 class Cropper(object):
     def __init__(self, crop_size, scale=[1, 1], trans_scale=0.0):

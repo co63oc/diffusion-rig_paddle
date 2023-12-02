@@ -17,8 +17,8 @@ import os
 import paddle
 import setuptools
 
-os.environ['CC'] = 'gcc'
-os.environ['CXX'] = 'gcc'
+os.environ["CC"] = "gcc"
+os.environ["CXX"] = "gcc"
 # USE_NINJA = os.getenv('USE_NINJA') == '1'
 paddle.utils.cpp_extension.setup(
     name="standard_rasterize_cuda",

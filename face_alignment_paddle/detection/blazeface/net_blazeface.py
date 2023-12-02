@@ -1,3 +1,17 @@
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#     http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import numpy as np
 import paddle
 import paddle.nn as nn
@@ -20,11 +34,23 @@ class BlazeBlock(nn.Layer):
             padding = (kernel_size - 1) // 2
 
         self.convs = nn.Sequential(
-            nn.Conv2D(in_channels=in_channels, out_channels=in_channels,
-                      kernel_size=kernel_size, stride=stride, padding=padding,
-                      groups=in_channels, bias=True),
-            nn.Conv2D(in_channels=in_channels, out_channels=out_channels,
-                      kernel_size=1, stride=1, padding=0, bias=True),
+            nn.Conv2D(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                groups=in_channels,
+                bias=True,
+            ),
+            nn.Conv2D(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+                bias=True,
+            ),
         )
 
         self.act = nn.ReLU(inplace=True)
@@ -83,10 +109,15 @@ class BlazeFace(nn.Layer):
 
     def _define_layers(self):
         self.backbone1 = nn.Sequential(
-            nn.Conv2D(in_channels=3, out_channels=24, kernel_size=5,
-                      stride=2, padding=0, bias=True),
+            nn.Conv2D(
+                in_channels=3,
+                out_channels=24,
+                kernel_size=5,
+                stride=2,
+                padding=0,
+                bias=True,
+            ),
             nn.ReLU(inplace=True),
-
             BlazeBlock(24, 24),
             BlazeBlock(24, 28),
             BlazeBlock(28, 32, stride=2),
@@ -119,31 +150,31 @@ class BlazeFace(nn.Layer):
         # than PyTorch, so do it manually.
         x = F.pad(x, (1, 2, 1, 2), "constant", 0)
 
-        b = x.shape[0]      # batch size, needed for reshaping later
+        b = x.shape[0]  # batch size, needed for reshaping later
 
-        x = self.backbone1(x)           # (b, 88, 16, 16)
-        h = self.backbone2(x)           # (b, 96, 8, 8)
+        x = self.backbone1(x)  # (b, 88, 16, 16)
+        h = self.backbone2(x)  # (b, 96, 8, 8)
 
         # Note: Because PyTorch is NCHW but TFLite is NHWC, we need to
         # permute the output from the conv layers before reshaping it.
 
-        c1 = self.classifier_8(x)       # (b, 2, 16, 16)
-        c1 = c1.transpose((0, 2, 3, 1))     # (b, 16, 16, 2)
-        c1 = c1.reshape((b, -1, 1))       # (b, 512, 1)
+        c1 = self.classifier_8(x)  # (b, 2, 16, 16)
+        c1 = c1.transpose((0, 2, 3, 1))  # (b, 16, 16, 2)
+        c1 = c1.reshape((b, -1, 1))  # (b, 512, 1)
 
-        c2 = self.classifier_16(h)      # (b, 6, 8, 8)
-        c2 = c2.transpose((0, 2, 3, 1))     # (b, 8, 8, 6)
-        c2 = c2.reshape((b, -1, 1))       # (b, 384, 1)
+        c2 = self.classifier_16(h)  # (b, 6, 8, 8)
+        c2 = c2.transpose((0, 2, 3, 1))  # (b, 8, 8, 6)
+        c2 = c2.reshape((b, -1, 1))  # (b, 384, 1)
 
         c = paddle.concat((c1, c2), dim=1)  # (b, 896, 1)
 
-        r1 = self.regressor_8(x)        # (b, 32, 16, 16)
-        r1 = r1.transpose((0, 2, 3, 1))     # (b, 16, 16, 32)
-        r1 = r1.reshape((b, -1, 16))      # (b, 512, 16)
+        r1 = self.regressor_8(x)  # (b, 32, 16, 16)
+        r1 = r1.transpose((0, 2, 3, 1))  # (b, 16, 16, 32)
+        r1 = r1.reshape((b, -1, 16))  # (b, 512, 16)
 
-        r2 = self.regressor_16(h)       # (b, 96, 8, 8)
-        r2 = r2.transpose((0, 2, 3, 1))     # (b, 8, 8, 96)
-        r2 = r2.reshape((b, -1, 16))      # (b, 384, 16)
+        r2 = self.regressor_16(h)  # (b, 96, 8, 8)
+        r2 = r2.transpose((0, 2, 3, 1))  # (b, 8, 8, 96)
+        r2 = r2.reshape((b, -1, 16))  # (b, 384, 16)
 
         r = paddle.concat((r1, r2), dim=1)  # (b, 896, 16)
         return [r, c]
@@ -158,19 +189,17 @@ class BlazeFace(nn.Layer):
 
     def load_anchors(self, path, device=None):
         device = device or self._device()
-        self.anchors = paddle.tensor(
-            np.load(path), dtype=paddle.float32, device=device)
-        assert(self.anchors.ndimension() == 2)
-        assert(self.anchors.shape[0] == self.num_anchors)
-        assert(self.anchors.shape[1] == 4)
+        self.anchors = paddle.tensor(np.load(path), dtype=paddle.float32, device=device)
+        assert self.anchors.ndimension() == 2
+        assert self.anchors.shape[0] == self.num_anchors
+        assert self.anchors.shape[1] == 4
 
     def load_anchors_from_npy(self, arr, device=None):
         device = device or self._device()
-        self.anchors = paddle.tensor(
-            arr, dtype=paddle.float32, device=device)
-        assert(self.anchors.ndimension() == 2)
-        assert(self.anchors.shape[0] == self.num_anchors)
-        assert(self.anchors.shape[1] == 4)
+        self.anchors = paddle.tensor(arr, dtype=paddle.float32, device=device)
+        assert self.anchors.ndimension() == 2
+        assert self.anchors.shape[0] == self.num_anchors
+        assert self.anchors.shape[1] == 4
 
     def _preprocess(self, x):
         """Converts the image pixels to the range [-1, 1]."""
@@ -231,8 +260,7 @@ class BlazeFace(nn.Layer):
         filtered_detections = []
         for i in range(len(detections)):
             faces = self._weighted_non_max_suppression(detections[i])
-            faces = paddle.stack(faces) if len(
-                faces) > 0 else paddle.zeros((0, 17))
+            faces = paddle.stack(faces) if len(faces) > 0 else paddle.zeros((0, 17))
             filtered_detections.append(faces)
 
         return filtered_detections
@@ -277,7 +305,7 @@ class BlazeFace(nn.Layer):
         for i in range(raw_box_tensor.shape[0]):
             boxes = detection_boxes[i, mask[i]]
             scores = detection_scores[i, mask[i]].unsqueeze(dim=-1)
-            output_detections.append(paddle.concat((boxes, scores), dim=-1).to('cpu'))
+            output_detections.append(paddle.concat((boxes, scores), dim=-1).to("cpu"))
 
         return output_detections
 
@@ -287,25 +315,26 @@ class BlazeFace(nn.Layer):
         """
         boxes = paddle.zeros_like(raw_boxes)
 
-        x_center = raw_boxes[..., 0] / self.x_scale * \
-            anchors[:, 2] + anchors[:, 0]
-        y_center = raw_boxes[..., 1] / self.y_scale * \
-            anchors[:, 3] + anchors[:, 1]
+        x_center = raw_boxes[..., 0] / self.x_scale * anchors[:, 2] + anchors[:, 0]
+        y_center = raw_boxes[..., 1] / self.y_scale * anchors[:, 3] + anchors[:, 1]
 
         w = raw_boxes[..., 2] / self.w_scale * anchors[:, 2]
         h = raw_boxes[..., 3] / self.h_scale * anchors[:, 3]
 
-        boxes[..., 0] = y_center - h / 2.  # ymin
-        boxes[..., 1] = x_center - w / 2.  # xmin
-        boxes[..., 2] = y_center + h / 2.  # ymax
-        boxes[..., 3] = x_center + w / 2.  # xmax
+        boxes[..., 0] = y_center - h / 2.0  # ymin
+        boxes[..., 1] = x_center - w / 2.0  # xmin
+        boxes[..., 2] = y_center + h / 2.0  # ymax
+        boxes[..., 3] = x_center + w / 2.0  # xmax
 
         for k in range(6):
             offset = 4 + k * 2
-            keypoint_x = raw_boxes[..., offset] / \
-                self.x_scale * anchors[:, 2] + anchors[:, 0]
-            keypoint_y = raw_boxes[..., offset + 1] / \
-                self.y_scale * anchors[:, 3] + anchors[:, 1]
+            keypoint_x = (
+                raw_boxes[..., offset] / self.x_scale * anchors[:, 2] + anchors[:, 0]
+            )
+            keypoint_y = (
+                raw_boxes[..., offset + 1] / self.y_scale * anchors[:, 3]
+                + anchors[:, 1]
+            )
             boxes[..., offset] = keypoint_x
             boxes[..., offset + 1] = keypoint_y
 
@@ -372,8 +401,9 @@ class BlazeFace(nn.Layer):
 
 # IOU code from https://github.com/amdegroot/ssd.pypaddle.blob/master/layers/box_utils.py
 
+
 def intersect(box_a, box_b):
-    """ We resize both tensors to [A,B,2] without new malloc:
+    """We resize both tensors to [A,B,2] without new malloc:
     [A,2] -> [A,1,2] -> [A,B,2]
     [B,2] -> [1,B,2] -> [A,B,2]
     Then we compute the area of intersect between box_a and box_b.
@@ -385,10 +415,14 @@ def intersect(box_a, box_b):
     """
     A = box_a.size(0)
     B = box_b.size(0)
-    max_xy = paddle.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2),
-                       box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = paddle.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2),
-                       box_b[:, :2].unsqueeze(0).expand(A, B, 2))
+    max_xy = paddle.min(
+        box_a[:, 2:].unsqueeze(1).expand(A, B, 2),
+        box_b[:, 2:].unsqueeze(0).expand(A, B, 2),
+    )
+    min_xy = paddle.max(
+        box_a[:, :2].unsqueeze(1).expand(A, B, 2),
+        box_b[:, :2].unsqueeze(0).expand(A, B, 2),
+    )
     inter = paddle.clamp((max_xy - min_xy), min=0)
     return inter[:, :, 0] * inter[:, :, 1]
 
@@ -406,10 +440,16 @@ def jaccard(box_a, box_b):
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, 2] - box_a[:, 0])
-              * (box_a[:, 3] - box_a[:, 1])).unsqueeze(1).expand_as(inter)  # [A,B]
-    area_b = ((box_b[:, 2] - box_b[:, 0])
-              * (box_b[:, 3] - box_b[:, 1])).unsqueeze(0).expand_as(inter)  # [A,B]
+    area_a = (
+        ((box_a[:, 2] - box_a[:, 0]) * (box_a[:, 3] - box_a[:, 1]))
+        .unsqueeze(1)
+        .expand_as(inter)
+    )  # [A,B]
+    area_b = (
+        ((box_b[:, 2] - box_b[:, 0]) * (box_b[:, 3] - box_b[:, 1]))
+        .unsqueeze(0)
+        .expand_as(inter)
+    )  # [A,B]
     union = area_a + area_b - inter
     return inter / union  # [A,B]
 
@@ -420,7 +460,7 @@ def overlap_similarity(box, other_boxes):
 
 
 def init_model():
-    net = BlazeFace().to('cuda')
+    net = BlazeFace().to("cuda")
     net.load_weights("BlazeFace/params/blazeface.pth")
     net.load_anchors("BlazeFace/params/anchors.npy")
 

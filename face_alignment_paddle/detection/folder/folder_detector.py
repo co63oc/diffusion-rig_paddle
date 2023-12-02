@@ -1,4 +1,19 @@
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#     http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
+
 import numpy as np
 import paddle
 
@@ -6,15 +21,15 @@ from ..core import FaceDetector
 
 
 class FolderDetector(FaceDetector):
-    '''This is a simple helper module that assumes the faces were detected already
-        (either previously or are provided as ground truth).
+    """This is a simple helper module that assumes the faces were detected already
+    (either previously or are provided as ground truth).
 
-        The class expects to find the bounding boxes in the same format used by
-        the rest of face detectors, mainly ``list[(x1,y1,x2,y2),...]``.
-        For each image the detector will search for a file with the same name and with one of the
-        following extensions: .npy, .t7 or .pth
+    The class expects to find the bounding boxes in the same format used by
+    the rest of face detectors, mainly ``list[(x1,y1,x2,y2),...]``.
+    For each image the detector will search for a file with the same name and with one of the
+    following extensions: .npy, .t7 or .pth
 
-    '''
+    """
 
     def __init__(self, device, path_to_detector=None, verbose=False):
         super(FolderDetector, self).__init__(device, verbose)
@@ -26,12 +41,12 @@ class FolderDetector(FaceDetector):
 
         base_name = os.path.splitext(tensor_or_path)[0]
 
-        if os.path.isfile(base_name + '.npy'):
-            detected_faces = np.load(base_name + '.npy')
-        elif os.path.isfile(base_name + '.t7'):
-            detected_faces = paddle.load(base_name + '.t7')
-        elif os.path.isfile(base_name + '.pth'):
-            detected_faces = paddle.load(base_name + '.pth')
+        if os.path.isfile(base_name + ".npy"):
+            detected_faces = np.load(base_name + ".npy")
+        elif os.path.isfile(base_name + ".t7"):
+            detected_faces = paddle.load(base_name + ".t7")
+        elif os.path.isfile(base_name + ".pth"):
+            detected_faces = paddle.load(base_name + ".pth")
         else:
             raise FileNotFoundError
 

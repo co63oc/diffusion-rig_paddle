@@ -148,20 +148,20 @@ def get_preds_fromhm(hm, center=None, scale=None):
         scale {float} -- face scale (default: {None})
     """
     max, idx = paddle.max(
-        hm.view(hm.size(0), hm.size(1), hm.size(2) * hm.size(3)), 2)
+        hm.reshape((hm.shape[0], hm.shape[1], hm.shape[2] * hm.shape[3])), 2)
     idx += 1
-    preds = idx.view(idx.size(0), idx.size(1), 1).repeat(1, 1, 2).float()
-    preds[..., 0].apply_(lambda x: (x - 1) % hm.size(3) + 1)
-    preds[..., 1].add_(-1).div_(hm.size(2)).floor_().add_(1)
+    preds = idx.reshape((idx.size(0), idx.shape[1], 1)).repeat((1, 1, 2)).astype("float32")
+    preds[..., 0].apply_(lambda x: (x - 1) % hm.shape[3] + 1)
+    preds[..., 1].add_(-1).div_(hm.shape[2]).floor_().add_(1)
 
     for i in range(preds.size(0)):
         for j in range(preds.size(1)):
             hm_ = hm[i, j, :]
             pX, pY = int(preds[i, j, 0]) - 1, int(preds[i, j, 1]) - 1
             if pX > 0 and pX < 63 and pY > 0 and pY < 63:
-                diff = paddle.FloatTensor(
+                diff = paddle.to_tensor(
                     [hm_[pY, pX + 1] - hm_[pY, pX - 1],
-                     hm_[pY + 1, pX] - hm_[pY - 1, pX]])
+                     hm_[pY + 1, pX] - hm_[pY - 1, pX]], dtype="float32")
                 preds[i, j].add_(diff.sign_().mul_(.25))
 
     preds.add_(-.5)
